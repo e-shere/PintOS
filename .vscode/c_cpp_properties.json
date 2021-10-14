@@ -1,0 +1,18 @@
+{
+    "configurations": [
+        {
+            "name": "Linux",
+            "includePath": [
+                "${default}",
+                "${workspaceFolder}/src/lib",
+                "${workspaceFolder}/src",
+                "${workspaceFolder}/src/lib/kernel"
+            ],
+            "compilerPath": "/usr/bin/gcc",
+            "cStandard": "c17",
+            "cppStandard": "c++14",
+            "intelliSenseMode": "linux-gcc-x86"
+        }
+    ],
+    "version": 4
+}

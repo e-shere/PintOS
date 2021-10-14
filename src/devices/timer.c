@@ -24,6 +24,14 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+/* List of sleeping threads, sorted by wake_time */
+static struct list sleepers;
+
+/* Next wake_time */
+static int64_t next_wake;
+
+static list_less_func wake_time_less;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -37,6 +45,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleepers);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -84,16 +93,37 @@ timer_elapsed (int64_t then)
   return timer_ticks () - then;
 }
 
+/* Compares sleepers by their wake_time */
+static bool
+wake_time_less (const struct list_elem *a,
+                const struct list_elem *b,
+                void *aux UNUSED)
+{
+  return list_entry(a, struct sleeper, elem)->wake_time 
+         < list_entry(b, struct sleeper, elem)->wake_time;
+}
+
 /* Sleeps for approximately TICKS timer ticks.  Interrupts must
    be turned on. */
 void
 timer_sleep (int64_t ticks) 
 {
-  int64_t start = timer_ticks ();
-
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  
+  if (ticks <= 0)
+    return;
+
+  /* Interrupts must be off for the next block to synchronise
+     the state of sleepers between multiple calls to timer_sleep
+     as well as timer_interrupt. */
+  intr_disable ();
+  struct sleeper s = { .wake_time = timer_ticks () + ticks };
+  sema_init (&s.sema, 0);
+  list_insert_ordered (&sleepers, &s.elem, wake_time_less, NULL);
+  if (s.wake_time < next_wake || next_wake == 0)
+    next_wake = s.wake_time;
+  sema_down (&s.sema);
+  intr_enable ();
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -171,6 +201,23 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  if (next_wake == ticks)
+    {
+      struct sleeper *next_sleeper = list_entry (list_begin (&sleepers), struct sleeper, elem);
+      do
+        {
+          list_remove (&next_sleeper->elem);
+          sema_up(&next_sleeper->sema);
+          if (list_empty (&sleepers))
+            break;
+          else
+            {
+              next_sleeper = list_entry (list_begin (&sleepers), struct sleeper, elem);
+              next_wake = next_sleeper->wake_time;
+            }
+        }
+      while (next_wake == ticks);
+    }
   thread_tick ();
 }
 

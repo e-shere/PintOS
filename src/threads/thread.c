@@ -71,6 +71,8 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
+static list_less_func priority_greater;
+
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -600,6 +602,15 @@ allocate_tid (void)
   lock_release (&tid_lock);
 
   return tid;
+}
+
+static bool
+priority_greater (const struct list_elem *a,
+                  const struct list_elem *b,
+                  void *aux UNUSED)
+{ 
+  return list_entry(a, struct thread, elem)->effective_priority 
+         > list_entry(b, struct thread, elem)->effective_priority;
 }
 
 /* Offset of `stack' member within `struct thread'.

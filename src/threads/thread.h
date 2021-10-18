@@ -91,7 +91,7 @@ struct thread
     struct list_elem allelem;           /* List element for all threads list. */
 
     struct lock *lock_waiting_on;       /* Lock currently waiting on (if any) */
-    struct list lock_held;              /* List of locks currently held. */
+    struct list locks_held;             /* List of locks currently held. */
     int effective_priority;             /* Current effective priority. */
 
     /* Shared between thread.c and synch.c. */

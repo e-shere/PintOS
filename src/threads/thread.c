@@ -71,8 +71,6 @@ static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 
-static list_less_func priority_greater;
-
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
    general and it is possible in this case only because loader.S
@@ -254,7 +252,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_push_back (&ready_list, &t->elem);
+  list_insert_ordered (&ready_list, &t->elem, &priority_greater, NULL);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -325,7 +323,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_push_back (&ready_list, &cur->elem);
+    list_insert_ordered (&ready_list, &cur->elem, &priority_greater, NULL);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -368,6 +366,15 @@ int
 thread_get_priority (void) 
 {
   return thread_current ()->effective_priority;
+}
+
+bool
+priority_greater (const struct list_elem *a,
+                  const struct list_elem *b,
+                  void *aux UNUSED)
+{ 
+  return list_entry(a, struct thread, elem)->effective_priority 
+         > list_entry(b, struct thread, elem)->effective_priority;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -602,15 +609,6 @@ allocate_tid (void)
   lock_release (&tid_lock);
 
   return tid;
-}
-
-static bool
-priority_greater (const struct list_elem *a,
-                  const struct list_elem *b,
-                  void *aux UNUSED)
-{ 
-  return list_entry(a, struct thread, elem)->effective_priority 
-         > list_entry(b, struct thread, elem)->effective_priority;
 }
 
 /* Offset of `stack' member within `struct thread'.

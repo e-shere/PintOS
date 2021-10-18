@@ -215,6 +215,7 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
+  thread_yield ();
 
   return tid;
 }
@@ -351,14 +352,12 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  if (new_priority > thread_current ()->effective_priority)
-    {
-      thread_current ()->effective_priority = new_priority;
-      if (!list_empty (&ready_list)
-          && list_entry (list_front (&ready_list), struct thread,
-                         elem)->effective_priority > thread_get_priority ())
-          thread_yield ();
-    }
+  update_effective_priority (thread_current ());
+  
+  if (!list_empty (&ready_list)
+      && list_entry (list_front (&ready_list), struct thread,
+                     elem)->effective_priority > thread_get_priority ())
+    thread_yield ();
 }
 
 /* Returns the current thread's priority. */
@@ -366,6 +365,14 @@ int
 thread_get_priority (void) 
 {
   return thread_current ()->effective_priority;
+}
+
+void
+update_effective_priority (struct thread *t)
+{
+  t->effective_priority = t->priority >= t->donated_priority
+                          ? t->priority
+                          : t->donated_priority;
 }
 
 bool
@@ -495,6 +502,7 @@ init_thread (struct thread *t, const char *name, int priority)
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
   t->effective_priority = priority;
+  t->donated_priority = PRI_MIN;
   t->magic = THREAD_MAGIC;
 
   list_init (&t->locks_held);

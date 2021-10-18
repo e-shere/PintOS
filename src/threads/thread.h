@@ -93,6 +93,7 @@ struct thread
     struct lock *lock_waiting_on;       /* Lock currently waiting on (if any) */
     struct list locks_held;             /* List of locks currently held. */
     int effective_priority;             /* Current effective priority. */
+    int donated_priority;               /* Current donated priority. */
 
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
@@ -137,6 +138,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+void update_effective_priority (struct thread *t);
 list_less_func priority_greater;
 
 int thread_get_nice (void);

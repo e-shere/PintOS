@@ -353,7 +353,12 @@ thread_set_priority (int new_priority)
 {
   thread_current ()->priority = new_priority;
   update_effective_priority (thread_current ());
-  
+  thread_yield_to_highest_priority ();
+}
+
+/* Yields if the current thread no longer has the highest priority */
+void thread_yield_to_highest_priority (void) 
+{
   if (!list_empty (&ready_list)
       && list_entry (list_front (&ready_list), struct thread,
                      elem)->effective_priority > thread_get_priority ())
@@ -380,8 +385,8 @@ priority_greater (const struct list_elem *a,
                   const struct list_elem *b,
                   void *aux UNUSED)
 { 
-  return list_entry(a, struct thread, elem)->effective_priority 
-         > list_entry(b, struct thread, elem)->effective_priority;
+  return list_entry (a, struct thread, elem)->effective_priority 
+         > list_entry (b, struct thread, elem)->effective_priority;
 }
 
 /* Sets the current thread's nice value to NICE. */

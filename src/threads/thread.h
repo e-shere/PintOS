@@ -138,6 +138,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
+void thread_yield_to_highest_priority (void);
 void update_effective_priority (struct thread *t);
 list_less_func priority_greater;
 

@@ -276,14 +276,16 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  enum intr_level old_level = intr_disable ();
+
   list_remove(&lock->held_list);
 
-  struct list locks_held = thread_current ()->locks_held;
+  struct list *locks_held = &thread_current ()->locks_held;
 
-  if (!list_empty (&locks_held)) 
+  if (!list_empty (locks_held)) 
   {
     struct list_elem *max_element 
-    = list_max(&locks_held, lock_priority_less, NULL);
+    = list_max(locks_held, &lock_priority_less, NULL);
 
     thread_current ()->donated_priority 
     = list_entry(max_element, struct lock, held_list)->priority;
@@ -296,6 +298,8 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
+
+  intr_set_level (old_level);
 
   thread_yield_to_highest_priority ();
 }

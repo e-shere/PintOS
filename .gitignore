@@ -23,3 +23,7 @@
 *.nav
 *.toc
 
+.vscode/
+.ccls-cache/
+.ccls
+compile_commands.json

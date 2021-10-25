@@ -267,8 +267,8 @@ lock_try_acquire (struct lock *lock)
 
 bool
 lock_priority_less (const struct list_elem *a,
-                  const struct list_elem *b,
-                  void *aux UNUSED)
+                    const struct list_elem *b,
+                    void *aux UNUSED)
 {
   return list_entry (a, struct lock, elem)->priority 
          < list_entry (b, struct lock, elem)->priority;
@@ -362,8 +362,8 @@ struct semaphore_elem
    exactly one waiting thread each. */
 bool
 cond_sema_priority_less (const struct list_elem *a,
-                  const struct list_elem *b,
-                  void *aux UNUSED)
+                         const struct list_elem *b,
+                         void *aux UNUSED)
 {
   struct semaphore_elem *sema_a = list_entry (a, struct semaphore_elem, elem);
   struct semaphore_elem *sema_b = list_entry (b, struct semaphore_elem, elem);

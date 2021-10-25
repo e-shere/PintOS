@@ -353,7 +353,7 @@ void
 thread_set_priority (int new_priority) 
 {
   thread_current ()->priority = new_priority;
-  update_effective_priority (thread_current ());
+  thread_update_effective_priority (thread_current ());
   thread_yield_to_highest_priority ();
 }
 
@@ -361,7 +361,7 @@ thread_set_priority (int new_priority)
 void thread_yield_to_highest_priority (void) 
 {
   if (!list_empty (&ready_list)
-      && list_entry (list_max (&ready_list, priority_less, NULL), struct thread,
+      && list_entry (list_max (&ready_list, thread_priority_less, NULL), struct thread,
                      elem)->effective_priority > thread_get_priority ())
     thread_yield ();
 }
@@ -374,7 +374,7 @@ thread_get_priority (void)
 }
 
 void
-update_effective_priority (struct thread *t)
+thread_update_effective_priority (struct thread *t)
 {
   t->effective_priority = t->priority >= t->donated_priority
                           ? t->priority
@@ -382,7 +382,7 @@ update_effective_priority (struct thread *t)
 }
 
 bool
-priority_less (const struct list_elem *a,
+thread_priority_less (const struct list_elem *a,
                   const struct list_elem *b,
                   void *aux UNUSED)
 { 
@@ -542,7 +542,7 @@ next_thread_to_run (void)
     return idle_thread;
   else
     {
-      struct list_elem *e = list_max (&ready_list, priority_less, NULL);
+      struct list_elem *e = list_max (&ready_list, thread_priority_less, NULL);
       struct thread *t = list_entry (e, struct thread, elem);
       list_remove(e);
       return t;

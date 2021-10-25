@@ -34,7 +34,7 @@
 
 static void lock_donate_priority (struct lock *lock, int priority);
 static list_less_func lock_priority_less;
-static list_less_func semaphore_priority_less;
+static list_less_func cond_sema_priority_less;
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
    nonnegative integer along with two atomic operators for
@@ -128,13 +128,9 @@ sema_up (struct semaphore *sema)
   sema->value++;
   intr_set_level (old_level);
 
-  /* TODO: Fix the following block */
-  if (next != NULL)
-    {
-      if (next->priority > thread_current ()->priority
-	  && !intr_context ())
-	thread_yield();
-    }
+  if (next != NULL && next->priority > thread_current ()->priority
+      && !intr_context ())
+    thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
@@ -360,18 +356,19 @@ struct semaphore_elem
     struct semaphore semaphore;         /* This semaphore. */
   };
 
+/* Compares two semaphores from a condition's waiters list by the
+   priorities of the threads waiting on them. The semaphores must have
+   exactly one waiting thread each. */
 bool
-semaphore_priority_less (const struct list_elem *a,
+cond_sema_priority_less (const struct list_elem *a,
                   const struct list_elem *b,
                   void *aux UNUSED)
 {
-  struct semaphore_elem *se_a = list_entry (a, struct semaphore_elem, elem);
-  struct semaphore_elem *se_b = list_entry (b, struct semaphore_elem, elem);
-  struct list_elem *min_thread_a =
-    list_min (&se_a->semaphore.waiters, &priority_less, NULL);
-  struct list_elem *min_thread_b =
-    list_min (&se_b->semaphore.waiters, &priority_less, NULL);
-  return priority_less(min_thread_a, min_thread_b, NULL); 
+  struct semaphore_elem *sema_a = list_entry (a, struct semaphore_elem, elem);
+  struct semaphore_elem *sema_b = list_entry (b, struct semaphore_elem, elem);
+  struct list_elem *thread_a = list_front (&sema_a->semaphore.waiters);
+  struct list_elem *thread_b = list_front (&sema_b->semaphore.waiters);
+  return priority_less(thread_a, thread_b, NULL); 
 }
 
 /* Initializes condition variable COND.  A condition variable
@@ -440,7 +437,7 @@ cond_signal (struct condition *cond, struct lock *lock UNUSED)
   if (!list_empty (&cond->waiters))
     {
       struct list_elem *e = list_max(&cond->waiters, 
-		      &semaphore_priority_less, NULL);
+		      &cond_sema_priority_less, NULL);
       list_remove(e);
       sema_up (&list_entry (e,
                struct semaphore_elem, elem)->semaphore);

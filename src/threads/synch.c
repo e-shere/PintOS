@@ -129,7 +129,7 @@ sema_up (struct semaphore *sema)
   sema->value++;
   intr_set_level (old_level);
 
-  if (next != NULL && next->priority > thread_current ()->priority
+  if (next != NULL && next->base_priority > thread_current ()->base_priority
       && !intr_context ())
     thread_yield();
 }
@@ -229,7 +229,7 @@ lock_acquire (struct lock *lock)
       lock->priority = list_empty (&waiters) 
                        ? PRI_MIN 
                        : list_entry (list_front (&waiters), 
-                                     struct thread, elem)->effective_priority;
+                                     struct thread, elem)->priority;
 
       thread_current ()->lock_waiting_on = NULL;
     }
@@ -304,7 +304,7 @@ lock_release (struct lock *lock)
     thread_current ()->donated_priority = PRI_MIN;
   }
 
-  thread_update_effective_priority (thread_current ());
+  thread_update_priority (thread_current ());
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
@@ -332,7 +332,7 @@ lock_donate_priority (struct lock *lock, int priority)
   if (t->donated_priority < priority) 
     {
       t->donated_priority = priority;
-      thread_update_effective_priority (t);
+      thread_update_priority (t);
 
       if (t->lock_waiting_on)
         lock_donate_priority (t->lock_waiting_on, priority);

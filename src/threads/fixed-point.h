@@ -1,12 +1,17 @@
 #ifndef FIXED_POINT_H
 #define FIXED_POINT_H
-/* Fixed point parameters */
+
+/* Fixed point type. */
+
+typedef int fp;
+
+/* Fixed point parameters. */
 
 #define FP_Q 14
 #define FP_P (31 - FP_Q)
 #define FP_F (1 << FP_Q)
 
-/* Fixed point arithmetic macros */
+/* Fixed point arithmetic macros. */
 
 #define FP_INT_TO_FP(n) ((n) * FP_F)
 #define FP_FP_TO_INT(x) ((x) / FP_F)

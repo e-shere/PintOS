@@ -144,10 +144,11 @@ void thread_foreach (thread_action_func *, void *);
 int thread_get_priority (void);
 void thread_set_priority (int);
 void thread_yield_to_highest_priority (void);
+void thread_yield_when_possible (void);
+void thread_update_donated_priority (struct thread *t);
 void thread_update_priority (struct thread *t);
 list_less_func thread_priority_less;
-struct list_elem* get_next_thread(struct list *l, list_less_func *less_func);
-struct list_elem* pop_next_thread(struct list *l, list_less_func *less_func);
+struct thread *get_next_thread (void);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

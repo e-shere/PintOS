@@ -85,6 +85,7 @@ static int get_highest_mlfqs_priority (void);
 static thread_action_func update_recent_cpu;
 static void thread_make_ready (struct thread *t);
 static struct list *thread_mlfqs_queue_for (struct thread *t);
+static int count_ready_threads (void);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -109,7 +110,7 @@ thread_init (void)
   list_init (&all_list);
   if (thread_mlfqs)
     {
-      for (int pri = PRI_MIN; pri < PRI_MAX; pri++)
+      for (int pri = 0; pri <= HIGHEST_MLFQS; pri++)
         {
           list_init (&mlfqs_array[pri]);
         }
@@ -288,7 +289,8 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  thread_make_ready (t);
+  if (t != idle_thread)
+    thread_make_ready (t);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -464,6 +466,7 @@ thread_update_priority (struct thread *t)
     if (t->status == THREAD_READY && t->priority != old_priority)
       {
         list_remove(&t->elem);
+        ready_threads--;
         thread_make_ready (t);
       }
   }
@@ -487,7 +490,7 @@ struct thread *
 get_next_thread (void)
 {
   if (threads_ready () == 0)
-    return NULL;
+    return idle_thread;
   struct list *l;
   if (thread_mlfqs)
     {
@@ -516,12 +519,22 @@ thread_mlfqs_queue_for (struct thread *t)
 static void
 thread_make_ready (struct thread *t)
 {
-  if (t != idle_thread)
-    ready_threads++;
+  ready_threads++;
   if (thread_mlfqs)
     list_push_back (thread_mlfqs_queue_for (t), &t->elem);
   else
     list_push_back (&ready_list, &t->elem);
+  printf ("ADD %d %d %s\n", count_ready_threads (), ready_threads, t->name);
+}
+
+static int
+count_ready_threads (void)
+{
+  int total = 0;
+  for (int i = 0; i <= HIGHEST_MLFQS; i++) {
+    total += list_size (&mlfqs_array[i]);
+  }
+  return total;
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -682,8 +695,8 @@ static struct thread *
 next_thread_to_run (void) 
 {
   struct thread *t = get_next_thread ();
-  if (t == NULL)
-    return idle_thread;
+  if (t == idle_thread)
+    return t;
   list_remove (&t->elem);
   ready_threads--;
   return t;
@@ -785,9 +798,10 @@ update_load_avg (void)
   load_avg = FP_ADD (FP_MUL (FP_DIV (FP_INT_TO_FP (59), 
                                      FP_INT_TO_FP (60)), 
                              load_avg),
-                     FP_MUL (FP_DIV (FP_INT_TO_FP (1), 
-                                     FP_INT_TO_FP (60)), 
-                             FP_SUB_INT (threads_ready (), 1)));
+                     FP_MUL_INT (FP_DIV (FP_INT_TO_FP (1), 
+                                         FP_INT_TO_FP (60)), 
+                                 threads_ready () + (thread_current () 
+                                                     != idle_thread)));
 }
 
 static void

@@ -24,6 +24,7 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
+#define HIGHEST_MLFQS (PRI_MAX - PRI_MIN)
 
 /* A kernel thread or user process.
 
@@ -145,6 +146,8 @@ void thread_set_priority (int);
 void thread_yield_to_highest_priority (void);
 void thread_update_priority (struct thread *t);
 list_less_func thread_priority_less;
+struct list_elem* get_next_thread(struct list *l, list_less_func *less_func);
+struct list_elem* pop_next_thread(struct list *l, list_less_func *less_func);
 
 int thread_get_nice (void);
 void thread_set_nice (int);

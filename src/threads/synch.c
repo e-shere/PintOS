@@ -32,7 +32,8 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 
-static void lock_donate_priority (struct lock *lock, int priority);
+static void sema_test_helper (void *sema_);
+static void lock_donate_priority (struct lock *, int);
 static list_less_func cond_sema_priority_less;
 
 /* Initializes semaphore SEMA to VALUE.  A semaphore is a
@@ -119,7 +120,8 @@ sema_up (struct semaphore *sema)
   struct thread *next = NULL;
   if (!list_empty (&sema->waiters))
     {
-      struct list_elem *e = list_max (&sema->waiters, thread_priority_less, NULL);
+      struct list_elem *e = list_max (&sema->waiters, 
+                                      thread_priority_less, NULL);
       list_remove(e);
       next = list_entry (e, struct thread, elem);
       thread_unblock (next);
@@ -130,8 +132,6 @@ sema_up (struct semaphore *sema)
   if (next != NULL && next->priority > thread_current ()->priority)
     thread_yield_when_possible ();
 }
-
-static void sema_test_helper (void *sema_);
 
 /* Self-test for semaphores that makes control "ping-pong"
    between a pair of threads.  Insert calls to printf() to see
@@ -167,7 +167,7 @@ sema_test_helper (void *sema_)
       sema_up (&sema[1]);
     }
 }
-
+
 /* Initializes LOCK.  A lock can be held by at most a single
    thread at any given time.  Our locks are not "recursive", that
    is, it is an error for the thread currently holding a lock to
@@ -217,13 +217,13 @@ lock_acquire (struct lock *lock)
 
   if (!sema_downed) 
     {
-      lock_donate_priority (lock, thread_get_priority());
+      lock_donate_priority (lock, thread_get_priority ());
       thread_current ()->lock_waiting_on = lock;
       sema_down (&lock->semaphore);
 
       lock->priority = (list_empty (&lock->semaphore.waiters))
                        ? PRI_MIN
-                       : list_entry (list_max(&lock->semaphore.waiters,
+                       : list_entry (list_max (&lock->semaphore.waiters,
                                               &thread_priority_less, NULL),
                                      struct thread, elem)->priority;
 
@@ -261,16 +261,6 @@ lock_try_acquire (struct lock *lock)
   return success;
 }
 
-bool
-lock_priority_less (const struct list_elem *a,
-                    const struct list_elem *b,
-                    void *aux UNUSED)
-{
-  return list_entry (a, struct lock, elem)->priority 
-         < list_entry (b, struct lock, elem)->priority;
-}
-
-
 /* Releases LOCK, which must be owned by the current thread.
 
    An interrupt handler cannot acquire a lock, so it does not
@@ -284,7 +274,7 @@ lock_release (struct lock *lock)
 
   enum intr_level old_level = intr_disable ();
 
-  list_remove(&lock->elem);
+  list_remove (&lock->elem);
 
   thread_update_donated_priority (thread_current ());
   thread_update_priority (thread_current ());
@@ -330,7 +320,19 @@ lock_held_by_current_thread (const struct lock *lock)
 
   return lock->holder == thread_current ();
 }
-
+
+/* Returns true if the priority of lock a is lower than the priority
+   of lock b. (Priority of a lock is the maximum of the effective
+   priorities of the threads waiting on it, or PRI_MIN) */
+bool
+lock_priority_less (const struct list_elem *a,
+                    const struct list_elem *b,
+                    void *aux UNUSED)
+{
+  return list_entry (a, struct lock, elem)->priority 
+         < list_entry (b, struct lock, elem)->priority;
+}
+
 /* One semaphore in a list. */
 struct semaphore_elem 
   {

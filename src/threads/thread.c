@@ -76,7 +76,7 @@ static void init_thread (struct thread *, const char *name, int priority);
 static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
-static void thread_schedule_tail (struct thread *prev);
+void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static void update_mlfqs_data (void);
 static void update_load_avg (void);
@@ -710,7 +710,7 @@ schedule (void)
 
    After this function and its caller returns, the thread switch
    is complete. */
-static void
+void
 thread_schedule_tail (struct thread *prev)
 {
   struct thread *cur = running_thread ();

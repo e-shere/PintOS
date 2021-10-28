@@ -114,8 +114,9 @@ thread_init (void)
         {
           list_init (&mlfqs_array[pri]);
         }
+      load_avg = 0;
     }
-  load_avg = 0;
+  
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
@@ -165,6 +166,8 @@ thread_tick (void)
         t->recent_cpu = FP_ADD_INT(t->recent_cpu, 1);
       if (timer_ticks () % TIMER_FREQ == 0)
         update_mlfqs_data ();
+      if (timer_ticks () % 4 == 0)
+        thread_update_priority (t);
     }
 
   /* Update statistics. */
@@ -524,7 +527,7 @@ thread_make_ready (struct thread *t)
     list_push_back (thread_mlfqs_queue_for (t), &t->elem);
   else
     list_push_back (&ready_list, &t->elem);
-  printf ("ADD %d %d %s\n", count_ready_threads (), ready_threads, t->name);
+  //printf ("ADD %d %d %s\n", count_ready_threads (), ready_threads, t->name);
 }
 
 static int

@@ -22,14 +22,11 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
-/* List of processes in THREAD_READY state, that is, processes
-   that are ready to run but not actually running. */
-static struct list ready_list;
-
 static int ready_threads;
 
-/* Multi-level list of ready threads */
-static struct list mlfqs_array[HIGHEST_MLFQS + 1];
+/* Multi-level list of processes in THREAD_READY state that is, processes
+   that are ready to run but not actually running. */
+static struct list ready_array[PRI_MAX - PRI_MIN + 1];
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
@@ -82,9 +79,9 @@ static void update_mlfqs_data (void);
 static void update_load_avg (void);
 static thread_action_func update_recent_cpu;
 static void thread_make_ready (struct thread *t);
-static int get_highest_mlfqs_priority (void);
+static int get_highest_existing_priority (void);
 static int thread_calculate_mlfqs_priority (struct thread *t);
-static struct list *thread_mlfqs_queue_for (struct thread *t);
+static struct list *thread_ready_queue_for (struct thread *t);
 static void thread_update_priority_action (struct thread *t, void *aux);
 
 /* Initializes the threading system by transforming the code
@@ -106,23 +103,18 @@ thread_init (void)
   ASSERT (intr_get_level () == INTR_OFF);
 
   lock_init (&tid_lock);
-  list_init (&ready_list);
   list_init (&all_list);
-  if (thread_mlfqs)
+  for (int pri = PRI_MIN; pri <= PRI_MAX; pri++)
     {
-      for (int pri = 0; pri <= HIGHEST_MLFQS; pri++)
-        {
-          list_init (&mlfqs_array[pri]);
-        }
-      load_avg = 0;
+      list_init (&ready_array[pri - PRI_MIN]);
     }
-  
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
   if (thread_mlfqs)
     {
+      load_avg = 0;
       initial_thread->nice = 0;
       initial_thread->recent_cpu = 0;
     }
@@ -416,7 +408,7 @@ thread_yield_to_highest_priority (void)
     return;
   if (thread_mlfqs)
     {
-      if (get_highest_mlfqs_priority () > thread_get_priority ())
+      if (get_highest_existing_priority () > thread_get_priority ())
         thread_yield_when_possible ();
     }
   else
@@ -482,20 +474,10 @@ get_next_thread (void)
 {
   if (threads_ready () == 0)
     return idle_thread;
-  struct list *l;
-  if (thread_mlfqs)
-    {
-      int priority = get_highest_mlfqs_priority ();
-      
-      /* If this assertion fails then threads_ready () 
-         returned the wrong value */
-      ASSERT (priority >= PRI_MIN);
-      
-      l = &mlfqs_array[priority];
-    }
-  else
-    l = &ready_list;
-  
+
+  int priority = get_highest_existing_priority ();
+  ASSERT (priority >= PRI_MIN);
+  struct list *l = &ready_array[priority];
   ASSERT (!list_empty (l));
   return list_entry (list_max (l, thread_priority_less, NULL), struct thread, elem);
 }
@@ -786,22 +768,16 @@ static void
 thread_make_ready (struct thread *t)
 {
   ready_threads++;
-  if (thread_mlfqs) 
-    {
-      list_push_back (thread_mlfqs_queue_for (t), &t->elem);
-    }
-  else
-    list_push_back (&ready_list, &t->elem);
+  list_push_back (thread_ready_queue_for (t), &t->elem);
 }
 
 static int
-get_highest_mlfqs_priority (void)
+get_highest_existing_priority (void)
 {
-  ASSERT (thread_mlfqs);
-  for (int pri = HIGHEST_MLFQS; pri >= 0; pri--)
+  for (int pri = PRI_MAX; pri >= PRI_MIN; pri--)
     {
-      if (!list_empty (&mlfqs_array[pri]))
-        return PRI_MIN + pri;
+      if (!list_empty (&ready_array[pri - PRI_MIN]))
+        return pri;
     }
   return PRI_MIN - 1;
 }
@@ -821,10 +797,9 @@ thread_calculate_mlfqs_priority (struct thread *t)
 }
 
 static struct list*
-thread_mlfqs_queue_for (struct thread *t)
+thread_ready_queue_for (struct thread *t)
 {
-  ASSERT (thread_mlfqs);
-  return &mlfqs_array[t->priority - PRI_MIN];
+  return &ready_array[t->priority - PRI_MIN];
 }
 
 static void

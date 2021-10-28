@@ -120,8 +120,9 @@ timer_sleep (int64_t ticks)
   struct sleeper s = { .wake_time = timer_ticks () + ticks };
   sema_init (&s.sema, 0);
   list_insert_ordered (&sleepers, &s.elem, wake_time_less, NULL);
-  if (s.wake_time < next_wake || next_wake == 0)
+  if (s.wake_time < next_wake || next_wake <= timer_ticks ())
     next_wake = s.wake_time;
+  //printf ("SENDING THREAD %s TO SLEEP until %d\n", thread_current ()->name, s.wake_time);
   sema_down (&s.sema);
   intr_enable ();
 }
@@ -201,12 +202,14 @@ static void
 timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
+  //printf ("Timer: %"PRId64" ticks. Next wake is at %"PRId64".\n", ticks, next_wake);
   if (next_wake == ticks)
     {
       struct sleeper *next_sleeper = list_entry (list_begin (&sleepers), struct sleeper, elem);
       do
         {
           list_remove (&next_sleeper->elem);
+          //printf ("WAKING UP A THREAD at %d\n", ticks);
           sema_up(&next_sleeper->sema);
           if (list_empty (&sleepers))
             break;

@@ -86,6 +86,9 @@ static thread_action_func update_recent_cpu;
 static void thread_make_ready (struct thread *t);
 static struct list *thread_mlfqs_queue_for (struct thread *t);
 static int count_ready_threads (void);
+static int thread_calculate_mlfqs_priority (struct thread *t);
+
+static void thread_update_priority_action (struct thread *t, void *aux);
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -164,10 +167,11 @@ thread_tick (void)
     {
       if (t != idle_thread)
         t->recent_cpu = FP_ADD_INT(t->recent_cpu, 1);
-      if (timer_ticks () % TIMER_FREQ == 0)
+      int current_ticks = timer_ticks ();
+      if (current_ticks % TIMER_FREQ == 0)
         update_mlfqs_data ();
-      if (timer_ticks () % 4 == 0)
-        thread_update_priority (t);
+      if (current_ticks % 4 == 0)
+        thread_foreach (thread_update_priority_action, NULL);
     }
 
   /* Update statistics. */
@@ -455,17 +459,27 @@ thread_update_donated_priority (struct thread *t)
                                       struct lock, elem)->priority;
 }
 
+static int
+thread_calculate_mlfqs_priority (struct thread *t)
+{
+  int base_pri = FP_FP_TO_INT(
+      FP_SUB (FP_INT_TO_FP (PRI_MAX),
+              FP_ADD_INT (FP_DIV_INT(t->recent_cpu, 4),
+                          t->nice * 2)) );
+  if (base_pri > PRI_MAX)
+    return PRI_MAX;
+  if (base_pri < PRI_MIN)
+    return PRI_MIN;
+  return base_pri;
+}
+
 void
 thread_update_priority (struct thread *t)
 {
   enum intr_level old_level = intr_disable ();
   if (thread_mlfqs) {
     int old_priority = t->priority;
-    t->priority = PRI_MAX - (thread_get_recent_cpu () / 4) - (thread_get_nice () * 2);
-    if (t->priority > PRI_MAX)
-      t->priority = PRI_MAX;
-    else if (t->priority < PRI_MIN)
-      t->priority = PRI_MIN;
+    t->priority = thread_calculate_mlfqs_priority (t);
     if (t->status == THREAD_READY && t->priority != old_priority)
       {
         list_remove(&t->elem);
@@ -523,8 +537,10 @@ static void
 thread_make_ready (struct thread *t)
 {
   ready_threads++;
-  if (thread_mlfqs)
-    list_push_back (thread_mlfqs_queue_for (t), &t->elem);
+  if (thread_mlfqs) 
+    {
+      list_push_back (thread_mlfqs_queue_for (t), &t->elem);
+    }
   else
     list_push_back (&ready_list, &t->elem);
   //printf ("ADD %d %d %s\n", count_ready_threads (), ready_threads, t->name);
@@ -589,9 +605,12 @@ idle (void *idle_started_ UNUSED)
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
   sema_up (idle_started);
+  
 
   for (;;) 
     {
+      //printf ("Idling! My priority is: %d. There are %d threads on the queue\n", thread_current ()->priority, count_ready_threads ());
+
       /* Let someone else run. */
       intr_disable ();
       thread_block ();
@@ -659,7 +678,6 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->priority = priority;
   t->base_priority = priority;
   t->donated_priority = PRI_MIN;
   t->magic = THREAD_MAGIC;
@@ -669,6 +687,10 @@ init_thread (struct thread *t, const char *name, int priority)
       t->nice = thread_get_nice ();
       t->recent_cpu = thread_get_recent_cpu ();
     }
+
+  t->priority = (thread_mlfqs)
+    ? thread_calculate_mlfqs_priority (t)
+    : priority;
 
   list_init (&t->locks_held);
   old_level = intr_disable ();
@@ -814,8 +836,16 @@ update_recent_cpu (struct thread *t, void *aux UNUSED)
   fp coef = FP_DIV(load_avg_times_2,
                    FP_ADD_INT(load_avg_times_2, 1));
   t->recent_cpu = FP_ADD_INT(FP_MUL(coef, t->recent_cpu), t->nice);
-  thread_update_priority (t);
 }
+
+static void
+thread_update_priority_action (struct thread *t, void *aux UNUSED)
+{
+  if (t == idle_thread)
+    return;
+  thread_update_priority(t);
+}
+
 
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */

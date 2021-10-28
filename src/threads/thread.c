@@ -76,13 +76,12 @@ static void init_thread (struct thread *, const char *name, int priority);
 static bool is_thread (struct thread *) UNUSED;
 static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
-void thread_schedule_tail (struct thread *prev);
+static void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
 static void update_mlfqs_data (void);
 static void update_load_avg (void);
 static thread_action_func update_recent_cpu;
 static void thread_make_ready (struct thread *t);
-static int count_ready_threads (void);
 static int get_highest_mlfqs_priority (void);
 static int thread_calculate_mlfqs_priority (struct thread *t);
 static struct list *thread_mlfqs_queue_for (struct thread *t);
@@ -793,17 +792,6 @@ thread_make_ready (struct thread *t)
     }
   else
     list_push_back (&ready_list, &t->elem);
-  //printf ("ADD %d %d %s\n", count_ready_threads (), ready_threads, t->name);
-}
-
-static int
-count_ready_threads (void)
-{
-  int total = 0;
-  for (int i = 0; i <= HIGHEST_MLFQS; i++) {
-    total += list_size (&mlfqs_array[i]);
-  }
-  return total;
 }
 
 static int

@@ -155,7 +155,7 @@ thread_tick (void)
   if (thread_mlfqs)
     {
       if (t != idle_thread)
-        t->recent_cpu = FP_ADD_INT(t->recent_cpu, 1);
+        t->recent_cpu = fp_add_int(t->recent_cpu, 1);
       int current_ticks = timer_ticks ();
       if (current_ticks % TIMER_FREQ == 0)
         update_mlfqs_data ();
@@ -511,7 +511,7 @@ int
 thread_get_recent_cpu (void) 
 {
   ASSERT (thread_mlfqs);
-  return FP_FP_TO_INT(FP_MUL_INT(thread_current ()->recent_cpu, 100));
+  return fp_fp_to_int(fp_mul_int(thread_current ()->recent_cpu, 100));
 }
 
 /* Returns 100 times the system load average. */
@@ -519,7 +519,7 @@ int
 thread_get_load_avg (void) 
 {
   ASSERT (thread_mlfqs);
-  return FP_FP_TO_INT(FP_MUL_INT(load_avg, 100));
+  return fp_fp_to_int(fp_mul_int(load_avg, 100));
 }
 
 /* Function used as the basis for a kernel thread. */
@@ -755,11 +755,11 @@ update_mlfqs_data (void)
 static void
 update_load_avg (void)
 {
-  load_avg = FP_ADD (FP_MUL (FP_DIV (FP_INT_TO_FP (59), 
-                                     FP_INT_TO_FP (60)), 
+  load_avg = fp_add (fp_mul (fp_div (fp_int_to_fp (59), 
+                                     fp_int_to_fp (60)), 
                              load_avg),
-                     FP_MUL_INT (FP_DIV (FP_INT_TO_FP (1), 
-                                         FP_INT_TO_FP (60)), 
+                     fp_mul_int (fp_div (fp_int_to_fp (1), 
+                                         fp_int_to_fp (60)), 
                                  threads_ready () + (thread_current () 
                                                      != idle_thread)));
 }
@@ -768,10 +768,10 @@ update_load_avg (void)
 static void
 update_recent_cpu (struct thread *t, void *aux UNUSED)
 {
-  fp load_avg_times_2 = FP_MUL_INT(load_avg, 2);
-  fp coef = FP_DIV(load_avg_times_2,
-                   FP_ADD_INT(load_avg_times_2, 1));
-  t->recent_cpu = FP_ADD_INT(FP_MUL(coef, t->recent_cpu), t->nice);
+  fp load_avg_times_2 = fp_mul_int(load_avg, 2);
+  fp coef = fp_div(load_avg_times_2,
+                   fp_add_int(load_avg_times_2, 1));
+  t->recent_cpu = fp_add_int(fp_mul(coef, t->recent_cpu), t->nice);
 }
 
 /* Adds a thread to the appropriate ready queue. */
@@ -799,9 +799,9 @@ static int
 thread_calculate_mlfqs_priority (struct thread *t)
 {
   ASSERT (thread_mlfqs);
-  int base_pri = FP_FP_TO_INT(
-      FP_SUB (FP_INT_TO_FP (PRI_MAX),
-              FP_ADD_INT (FP_DIV_INT(t->recent_cpu, 4),
+  int base_pri = fp_fp_to_int(
+      fp_sub (fp_int_to_fp (PRI_MAX),
+              fp_add_int (fp_div_int(t->recent_cpu, 4),
                           t->nice * 2)) );
   if (base_pri > PRI_MAX)
     return PRI_MAX;

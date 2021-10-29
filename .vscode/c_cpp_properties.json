@@ -11,7 +11,8 @@
             "compilerPath": "/usr/bin/gcc",
             "cStandard": "c17",
             "cppStandard": "c++14",
-            "intelliSenseMode": "linux-gcc-x86"
+            "intelliSenseMode": "linux-gcc-x86",
+            "compileCommands": "${workspaceFolder}/src/threads/compile_commands.json"
         }
     ],
     "version": 4

@@ -1,5 +1,7 @@
 {
     "files.associations": {
-        "synch.h": "c"
+        "synch.h": "c",
+        "new": "c",
+        "*.inc": "cpp"
     }
 }

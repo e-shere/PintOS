@@ -68,6 +68,9 @@ bool thread_mlfqs;
 /* Average load for MLFQS. */
 static fp load_avg;
 
+/* Recalculation */
+#define RECALCULATION_TICKS 4 /* # of timer ticks after which priority must be recalculated */
+
 static void kernel_thread (thread_func *, void *aux);
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
@@ -169,11 +172,11 @@ thread_tick (void)
       if (t != idle_thread)
         {
           t->recent_cpu = fp_add_int (t->recent_cpu, 1);
-          recently_updated_threads[current_ticks % 4] = t;
+          recently_updated_threads[current_ticks % RECALCULATION_TICKS] = t;
         }
-      if (current_ticks % 4 == 0)
+      if (current_ticks % RECALCULATION_TICKS == 0)
         {
-          for (int i = 0; i < 4; i++)
+          for (int i = 0; i < RECALCULATION_TICKS; i++)
             {
               thread_update_priority (recently_updated_threads[i]);
             }

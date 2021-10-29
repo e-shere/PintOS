@@ -31,6 +31,9 @@ static struct list ready_array[PRI_MAX - PRI_MIN + 1];
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/* Recalculation */
+#define RECALCULATION_TICKS 4 /* # of timer ticks after which priority must be recalculated */
+
 /* Threads that have run since the last priority update. */
 static struct thread *recently_updated_threads[RECALCULATION_TICKS];
 
@@ -67,9 +70,6 @@ bool thread_mlfqs;
 
 /* Average load for MLFQS. */
 static fp load_avg;
-
-/* Recalculation */
-#define RECALCULATION_TICKS 4 /* # of timer ticks after which priority must be recalculated */
 
 static void kernel_thread (thread_func *, void *aux);
 static void idle (void *aux UNUSED);

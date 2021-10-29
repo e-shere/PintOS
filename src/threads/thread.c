@@ -406,18 +406,8 @@ thread_yield_to_highest_priority (void)
 {
   if (intr_context ())
     return;
-  if (thread_mlfqs)
-    {
-      if (get_highest_existing_priority () > thread_get_priority ())
-        thread_yield_when_possible ();
-    }
-  else
-    {
-      struct thread *t = get_next_thread ();
-      if (t && t->priority > thread_get_priority ())
-        thread_yield_when_possible ();
-    }
-  
+  if (get_highest_existing_priority () > thread_get_priority ())
+    thread_yield_when_possible ();
 }
 
 void

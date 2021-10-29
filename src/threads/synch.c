@@ -306,7 +306,7 @@ lock_release (struct lock *lock)
    
    Should only be called if lock->sema->waiters contains or 
    is about to contain a thread whose effective priority is
-   "priority" AND lock->priority_sema has already been downed. */
+   "priority". */
 void 
 lock_donate_priority (struct lock *lock, int priority) 
 {

@@ -164,8 +164,6 @@ thread_tick (void)
           t->recent_cpu = fp_add_int(t->recent_cpu, 1);
           recently_updated_threads[current_ticks % 4] = t;
         }
-      if (current_ticks % TIMER_FREQ == 0)
-        update_mlfqs_data ();
       if (current_ticks % 4 == 0)
         {
           for (int i = 0; i < 4; i++)
@@ -174,6 +172,8 @@ thread_tick (void)
             }
           thread_yield_to_highest_priority();
         }
+      if (current_ticks % TIMER_FREQ == 0)
+        update_mlfqs_data ();
     }
 
   /* Update statistics. */
@@ -779,6 +779,7 @@ update_recent_cpu (struct thread *t, void *aux UNUSED)
   fp coef = fp_div (load_avg_times_2,
                    fp_add_int (load_avg_times_2, 1));
   t->recent_cpu = fp_add_int (fp_mul (coef, t->recent_cpu), t->nice);
+  thread_update_priority (t);
 }
 
 /* Adds a thread to the appropriate ready queue. */

@@ -389,15 +389,16 @@ thread_get_priority (void)
   return thread_current ()->priority;
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. */
+/* Sets the current thread's priority to NEW_PRIORITY. Cannot be called from 
+   an interrupt handler. */
 void
 thread_set_priority (int new_priority) 
 {
   if (thread_mlfqs)
     return;
   ASSERT (!intr_context ());
-  sema_down (&thread_current ()->priority_sema);
   thread_current ()->base_priority = new_priority;
+  sema_down (&thread_current ()->priority_sema);
   thread_update_priority (thread_current ());
   sema_up (&thread_current ()->priority_sema);
   thread_yield_to_highest_priority ();

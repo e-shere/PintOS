@@ -273,15 +273,12 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  if (!intr_context ()) sema_down (&lock->priority_sema);
-
   list_remove (&lock->elem);
 
   thread_update_donated_priority (thread_current ());
   thread_update_priority (thread_current ());
 
   lock->holder = NULL;
-  if (!intr_context ()) sema_up (&lock->priority_sema);
   sema_up (&lock->semaphore);
 }
 

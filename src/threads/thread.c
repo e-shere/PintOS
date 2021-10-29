@@ -62,6 +62,7 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-mlfqs". */
 bool thread_mlfqs;
 
+/* Average load for MLFQS. */
 static fp load_avg;
 
 static void kernel_thread (thread_func *, void *aux);
@@ -414,6 +415,8 @@ thread_yield_to_highest_priority (void)
     thread_yield_when_possible ();
 }
 
+/* Yields immediately if not in an interrupt context, or at the end of the
+   interrupt otherwise. */
 void
 thread_yield_when_possible ()
 {
@@ -423,9 +426,12 @@ thread_yield_when_possible ()
     thread_yield ();
 }
 
+/* Recalculates the priority donated to this thread based on the locks it
+   is holding. */
 void
 thread_update_donated_priority (struct thread *t)
 {
+  ASSERT (!thread_mlfqs);
   t->donated_priority = list_empty (&t->locks_held)
                         ? PRI_MIN
                         : list_entry (list_max (&t->locks_held, 
@@ -433,27 +439,32 @@ thread_update_donated_priority (struct thread *t)
                                       struct lock, elem)->priority;
 }
 
+/* Recalculates the effective priority from recent_cpu and nice for the 
+   MLFQS, or from the base and donated priority otherwise. */
 void
 thread_update_priority (struct thread *t)
 {
+  if (t == idle_thread)
+    return;
+  enum intr_level old_level = intr_disable ();
+  int old_priority = t->priority;
   if (thread_mlfqs) {
-    enum intr_level old_level = intr_disable ();
-    int old_priority = t->priority;
     t->priority = thread_calculate_mlfqs_priority (t);
-    if (t->status == THREAD_READY && t->priority != old_priority)
-      {
-        list_remove(&t->elem);
-        ready_threads--;
-        thread_make_ready (t);
-      }
-    intr_set_level (old_level);
   }
   else
     t->priority = t->base_priority >= t->donated_priority
                   ? t->base_priority
                   : t->donated_priority;
+  if (t->status == THREAD_READY && t->priority != old_priority)
+    {
+      list_remove(&t->elem);
+      ready_threads--;
+      thread_make_ready (t);
+    }
+  intr_set_level (old_level);
 }
 
+/* Compares two threads by their effective priorities. */
 bool
 thread_priority_less (const struct list_elem *a,
                       const struct list_elem *b,
@@ -463,6 +474,7 @@ thread_priority_less (const struct list_elem *a,
          < list_entry (b, struct thread, elem)->priority;
 }
 
+/* Returns the next thread that will run. */
 struct thread *
 get_next_thread (void)
 {
@@ -731,6 +743,7 @@ allocate_tid (void)
   return tid;
 }
 
+/* Updates load_avg as well as every thread's recent_cpu. */
 static void
 update_mlfqs_data (void)
 {
@@ -738,6 +751,7 @@ update_mlfqs_data (void)
   thread_foreach (update_recent_cpu, NULL);
 }
 
+/* Recalculates load_avg. */
 static void
 update_load_avg (void)
 {
@@ -750,6 +764,7 @@ update_load_avg (void)
                                                      != idle_thread)));
 }
 
+/* Recalculates a thread's recent_cpu. */
 static void
 update_recent_cpu (struct thread *t, void *aux UNUSED)
 {
@@ -759,6 +774,7 @@ update_recent_cpu (struct thread *t, void *aux UNUSED)
   t->recent_cpu = FP_ADD_INT(FP_MUL(coef, t->recent_cpu), t->nice);
 }
 
+/* Adds a thread to the appropriate ready queue. */
 static void
 thread_make_ready (struct thread *t)
 {
@@ -766,6 +782,7 @@ thread_make_ready (struct thread *t)
   list_push_back (thread_ready_queue_for (t), &t->elem);
 }
 
+/* Gets the highest priority of any ready thread. */
 static int
 get_highest_existing_priority (void)
 {
@@ -777,9 +794,11 @@ get_highest_existing_priority (void)
   return PRI_MIN - 1;
 }
 
+/* Recalculates the priority of a thread in MLFQS. */
 static int
 thread_calculate_mlfqs_priority (struct thread *t)
 {
+  ASSERT (thread_mlfqs);
   int base_pri = FP_FP_TO_INT(
       FP_SUB (FP_INT_TO_FP (PRI_MAX),
               FP_ADD_INT (FP_DIV_INT(t->recent_cpu, 4),
@@ -791,17 +810,18 @@ thread_calculate_mlfqs_priority (struct thread *t)
   return base_pri;
 }
 
+/* Returns the appropriate ready queue for a thread. */
 static struct list*
 thread_ready_queue_for (struct thread *t)
 {
   return &ready_array[t->priority - PRI_MIN];
 }
 
+/* Wrapper around thread_update_priority to allow it to be passed to
+   thread_foreach. */
 static void
 thread_update_priority_action (struct thread *t, void *aux UNUSED)
 {
-  if (t == idle_thread)
-    return;
   thread_update_priority(t);
 }
 

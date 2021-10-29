@@ -273,12 +273,17 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
+  sema_down (&lock->priority_sema);
+
   list_remove (&lock->elem);
 
+  /* The next two statements don't need to be synchronised because they only
+     affects the current thread, which cannot preempt itself. */
   thread_update_donated_priority (thread_current ());
   thread_update_priority (thread_current ());
 
   lock->holder = NULL;
+  sema_up (&lock->priority_sema);
   sema_up (&lock->semaphore);
 }
 

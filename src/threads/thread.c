@@ -79,6 +79,7 @@ static void update_mlfqs_data (void);
 static void update_load_avg (void);
 static thread_action_func update_recent_cpu;
 static void thread_make_ready (struct thread *t);
+static void thread_remove_ready (struct thread *t);
 static int get_highest_existing_priority (void);
 static int thread_calculate_mlfqs_priority (struct thread *t);
 static struct list *thread_ready_queue_for (struct thread *t);
@@ -399,9 +400,7 @@ thread_set_priority (int new_priority)
     return;
   ASSERT (!intr_context ());
   thread_current ()->base_priority = new_priority;
-  sema_down (&thread_current ()->priority_sema);
   thread_update_priority (thread_current ());
-  sema_up (&thread_current ()->priority_sema);
   thread_yield_to_highest_priority ();
 }
 
@@ -457,7 +456,7 @@ thread_update_priority (struct thread *t)
                   : t->donated_priority;
   if (t->status == THREAD_READY && t->priority != old_priority)
     {
-      list_remove(&t->elem);
+      thread_remove_ready (t);
       ready_threads--;
       thread_make_ready (t);
     }
@@ -599,7 +598,7 @@ next_thread_to_run (void)
   struct thread *t = get_next_thread ();
   if (t == idle_thread)
     return t;
-  list_remove (&t->elem);
+  thread_remove_ready (t);
   ready_threads--;
   return t;
 }
@@ -634,7 +633,6 @@ init_thread (struct thread *t, const char *name, int priority)
     : priority;
 
   list_init (&t->locks_held);
-  sema_init (&t->priority_sema, 1);
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
@@ -780,6 +778,13 @@ thread_make_ready (struct thread *t)
 {
   ready_threads++;
   list_push_back (thread_ready_queue_for (t), &t->elem);
+}
+
+/* Removes a thread from its ready queue. */
+static void
+thread_remove_ready (struct thread *t)
+{
+  list_remove(&t->elem);
 }
 
 /* Gets the highest priority of any ready thread. */

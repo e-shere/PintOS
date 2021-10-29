@@ -96,8 +96,6 @@ struct thread
     struct list locks_held;             /* List of locks currently held. */
     int base_priority;                  /* Base priority. */
     int donated_priority;               /* Maximum donated priority. */
-    struct semaphore priority_sema;     /* Binary semaphore controlling threadsafe
-                                           priority updates */
     
     int nice;                           /* Nice value */
     fp recent_cpu;                      /* Recent CPU usage */

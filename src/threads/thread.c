@@ -31,6 +31,9 @@ static struct list ready_array[PRI_MAX - PRI_MIN + 1];
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
 
+/* Threads that have run since the last priority update. */
+static struct thread *recently_updated_threads[4];
+
 /* Idle thread. */
 static struct thread *idle_thread;
 
@@ -155,14 +158,20 @@ thread_tick (void)
   struct thread *t = thread_current ();
   if (thread_mlfqs)
     {
-      if (t != idle_thread)
-        t->recent_cpu = fp_add_int(t->recent_cpu, 1);
       int current_ticks = timer_ticks ();
+      if (t != idle_thread)
+        {
+          t->recent_cpu = fp_add_int(t->recent_cpu, 1);
+          recently_updated_threads[current_ticks % 4] = t;
+        }
       if (current_ticks % TIMER_FREQ == 0)
         update_mlfqs_data ();
       if (current_ticks % 4 == 0)
         {
-          thread_foreach (thread_update_priority_action, NULL);
+          for (int i = 0; i < 4; i++)
+            {
+              thread_update_priority (recently_updated_threads[i]);
+            }
           thread_yield_to_highest_priority();
         }
     }
@@ -510,7 +519,7 @@ int
 thread_get_recent_cpu (void) 
 {
   ASSERT (thread_mlfqs);
-  return fp_fp_to_int(fp_mul_int(thread_current ()->recent_cpu, 100));
+  return fp_fp_to_int (fp_mul_int (thread_current ()->recent_cpu, 100));
 }
 
 /* Returns 100 times the system load average. */
@@ -518,7 +527,7 @@ int
 thread_get_load_avg (void) 
 {
   ASSERT (thread_mlfqs);
-  return fp_fp_to_int(fp_mul_int(load_avg, 100));
+  return fp_fp_to_int (fp_mul_int (load_avg, 100));
 }
 
 /* Function used as the basis for a kernel thread. */
@@ -766,10 +775,10 @@ update_load_avg (void)
 static void
 update_recent_cpu (struct thread *t, void *aux UNUSED)
 {
-  fp load_avg_times_2 = fp_mul_int(load_avg, 2);
-  fp coef = fp_div(load_avg_times_2,
-                   fp_add_int(load_avg_times_2, 1));
-  t->recent_cpu = fp_add_int(fp_mul(coef, t->recent_cpu), t->nice);
+  fp load_avg_times_2 = fp_mul_int (load_avg, 2);
+  fp coef = fp_div (load_avg_times_2,
+                   fp_add_int (load_avg_times_2, 1));
+  t->recent_cpu = fp_add_int (fp_mul (coef, t->recent_cpu), t->nice);
 }
 
 /* Adds a thread to the appropriate ready queue. */
@@ -804,10 +813,10 @@ static int
 thread_calculate_mlfqs_priority (struct thread *t)
 {
   ASSERT (thread_mlfqs);
-  int base_pri = fp_fp_to_int(
-      fp_sub (fp_int_to_fp (PRI_MAX),
-              fp_add_int (fp_div_int(t->recent_cpu, 4),
-                          t->nice * 2)) );
+  int base_pri = fp_fp_to_int (fp_sub (fp_int_to_fp (PRI_MAX),
+                                       fp_add_int (fp_div_int (t->recent_cpu, 
+                                                               4),
+                                                   t->nice * 2)));
   if (base_pri > PRI_MAX)
     return PRI_MAX;
   if (base_pri < PRI_MIN)
@@ -820,14 +829,6 @@ static struct list*
 thread_ready_queue_for (struct thread *t)
 {
   return &ready_array[t->priority - PRI_MIN];
-}
-
-/* Wrapper around thread_update_priority to allow it to be passed to
-   thread_foreach. */
-static void
-thread_update_priority_action (struct thread *t, void *aux UNUSED)
-{
-  thread_update_priority(t);
 }
 
 /* Offset of `stack' member within `struct thread'.

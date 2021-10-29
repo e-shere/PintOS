@@ -400,9 +400,7 @@ thread_set_priority (int new_priority)
     return;
   ASSERT (!intr_context ());
   thread_current ()->base_priority = new_priority;
-  sema_down (&thread_current ()->priority_sema);
   thread_update_priority (thread_current ());
-  sema_up (&thread_current ()->priority_sema);
   thread_yield_to_highest_priority ();
 }
 
@@ -635,7 +633,6 @@ init_thread (struct thread *t, const char *name, int priority)
     : priority;
 
   list_init (&t->locks_held);
-  sema_init (&t->priority_sema, 1);
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

@@ -191,7 +191,7 @@ lock_init (struct lock *lock)
   lock->holder = NULL;
   sema_init (&lock->semaphore, 1);
   lock->priority = PRI_MIN;
-  sema_init (&lock->priority_sema, 1);
+  
 }
 
 /* Acquires LOCK, sleeping until it becomes available if
@@ -216,7 +216,7 @@ lock_acquire (struct lock *lock)
       return;
     }
 
-  sema_down (&lock->priority_sema);
+  enum intr_level old_level = intr_disable ();
 
   bool sema_down_success = sema_try_down (&lock->semaphore);
 
@@ -239,7 +239,7 @@ lock_acquire (struct lock *lock)
 
   list_push_back (&thread_current ()->locks_held, &lock->elem);
 
-  sema_up (&lock->priority_sema);
+  intr_set_level (old_level);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -284,7 +284,7 @@ lock_release (struct lock *lock)
       return;
     }
 
-  sema_down (&lock->priority_sema);
+  enum intr_level old_level = intr_disable ();
 
   list_remove (&lock->elem);
 
@@ -294,8 +294,9 @@ lock_release (struct lock *lock)
   thread_update_priority (thread_current ());
 
   lock->holder = NULL;
-  sema_up (&lock->priority_sema);
   sema_up (&lock->semaphore);
+
+  intr_set_level (old_level);
 }
 
 /* Propagates priority donation through threads until one 
@@ -309,13 +310,12 @@ lock_release (struct lock *lock)
 void 
 lock_donate_priority (struct lock *lock, int priority) 
 {
+  ASSERT (intr_get_level () == INTR_OFF)
+
   if (priority > lock->priority)
     lock->priority = priority;
 
   struct thread *t = lock->holder;
-  
-  sema_down (&t->priority_sema);
-  sema_up (&lock->priority_sema);
   
   if (t->donated_priority < priority) 
     {
@@ -324,16 +324,8 @@ lock_donate_priority (struct lock *lock, int priority)
 
       struct lock *next_lock = t->lock_waiting_on;
       if (next_lock)
-        {
-          sema_down (&next_lock->priority_sema);
-          sema_up (&t->priority_sema);
-          lock_donate_priority (next_lock, priority);
-        }
-      else
-        sema_up (&t->priority_sema);
+        lock_donate_priority (next_lock, priority);
     }
-  else
-    sema_up (&t->priority_sema);
 }
 
 /* Returns true if the current thread holds LOCK, false

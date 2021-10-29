@@ -168,7 +168,7 @@ thread_tick (void)
       int current_ticks = timer_ticks ();
       if (t != idle_thread)
         {
-          t->recent_cpu = fp_add_int(t->recent_cpu, 1);
+          t->recent_cpu = fp_add_int (t->recent_cpu, 1);
           recently_updated_threads[current_ticks % 4] = t;
         }
       if (current_ticks % 4 == 0)
@@ -177,7 +177,7 @@ thread_tick (void)
             {
               thread_update_priority (recently_updated_threads[i]);
             }
-          thread_yield_to_highest_priority();
+          thread_yield_if_needed ();
         }
       if (current_ticks % TIMER_FREQ == 0)
         update_mlfqs_data ();
@@ -417,12 +417,12 @@ thread_set_priority (int new_priority)
   ASSERT (!intr_context ());
   thread_current ()->base_priority = new_priority;
   thread_update_priority (thread_current ());
-  thread_yield_to_highest_priority ();
+  thread_yield_if_needed ();
 }
 
 /* Yields if the current thread no longer has the highest priority */
 void
-thread_yield_to_highest_priority (void) 
+thread_yield_if_needed (void) 
 {
   if (intr_context ())
     return;
@@ -518,7 +518,7 @@ thread_set_nice (int nice)
   ASSERT (thread_mlfqs);
   thread_current ()->nice = nice;
   thread_update_priority (thread_current ());
-  thread_yield_to_highest_priority ();
+  thread_yield_if_needed ();
 }
 
 /* Returns 100 times the current thread's recent_cpu value. */

@@ -86,7 +86,9 @@ static void thread_remove_ready (struct thread *t);
 static int get_highest_existing_priority (void);
 static int thread_calculate_mlfqs_priority (struct thread *t);
 static struct list *thread_ready_queue_for (struct thread *t);
-static void thread_update_priority_action (struct thread *t, void *aux);
+
+/* Constants for 4.4BSD scheduler calculations */
+static fp FP_SIXTIETH, FP_FIFTYNINE, FP_PRI_MAX;
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -105,6 +107,11 @@ void
 thread_init (void) 
 {
   ASSERT (intr_get_level () == INTR_OFF);
+
+  /* initialize FP constants */
+  FP_SIXTIETH = fp_div (fp_int_to_fp (1), fp_int_to_fp (60));
+  FP_FIFTYNINE = fp_int_to_fp (59);
+  FP_PRI_MAX = fp_int_to_fp (PRI_MAX);
 
   lock_init (&tid_lock);
   list_init (&all_list);
@@ -762,13 +769,10 @@ update_mlfqs_data (void)
 static void
 update_load_avg (void)
 {
-  load_avg = fp_add (fp_mul (fp_div (fp_int_to_fp (59), 
-                                     fp_int_to_fp (60)), 
-                             load_avg),
-                     fp_mul_int (fp_div (fp_int_to_fp (1), 
-                                         fp_int_to_fp (60)), 
-                                 threads_ready () + (thread_current () 
-                                                     != idle_thread)));
+  load_avg = fp_mul (FP_SIXTIETH, 
+                     fp_add_int (fp_mul (FP_FIFTYNINE, load_avg), 
+                                 threads_ready () + 
+                                  (thread_current () != idle_thread)));
 }
 
 /* Recalculates a thread's recent_cpu. */
@@ -814,7 +818,7 @@ static int
 thread_calculate_mlfqs_priority (struct thread *t)
 {
   ASSERT (thread_mlfqs);
-  int base_pri = fp_fp_to_int (fp_sub (fp_int_to_fp (PRI_MAX),
+  int base_pri = fp_fp_to_int (fp_sub (FP_PRI_MAX,
                                        fp_add_int (fp_div_int (t->recent_cpu, 
                                                                4),
                                                    t->nice * 2)));

@@ -4,6 +4,7 @@
 #include <debug.h>
 #include <list.h>
 #include <stdint.h>
+#include "threads/synch.h"
 #include "threads/fixed-point.h"
 
 /* States in a thread's life cycle. */
@@ -24,7 +25,6 @@ typedef int tid_t;
 #define PRI_MIN 0                       /* Lowest priority. */
 #define PRI_DEFAULT 31                  /* Default priority. */
 #define PRI_MAX 63                      /* Highest priority. */
-#define HIGHEST_MLFQS (PRI_MAX - PRI_MIN)
 
 /* A kernel thread or user process.
 
@@ -96,6 +96,8 @@ struct thread
     struct list locks_held;             /* List of locks currently held. */
     int base_priority;                  /* Base priority. */
     int donated_priority;               /* Maximum donated priority. */
+    struct semaphore priority_sema;     /* Binary semaphore controlling threadsafe
+                                           priority updates */
     
     int nice;                           /* Nice value */
     fp recent_cpu;                      /* Recent CPU usage */

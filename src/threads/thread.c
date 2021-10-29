@@ -11,7 +11,6 @@
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
-#include "threads/synch.h"
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -618,6 +617,7 @@ init_thread (struct thread *t, const char *name, int priority)
     : priority;
 
   list_init (&t->locks_held);
+  sema_init (&t->priority_sema, 1);
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);

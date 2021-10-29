@@ -393,9 +393,13 @@ thread_get_priority (void)
 void
 thread_set_priority (int new_priority) 
 {
-  ASSERT (!thread_mlfqs)
+  if (thread_mlfqs)
+    return;
+  ASSERT (!intr_context ());
+  sema_down (&thread_current ()->priority_sema);
   thread_current ()->base_priority = new_priority;
   thread_update_priority (thread_current ());
+  sema_up (&thread_current ()->priority_sema);
   thread_yield_to_highest_priority ();
 }
 
@@ -431,8 +435,8 @@ thread_update_donated_priority (struct thread *t)
 void
 thread_update_priority (struct thread *t)
 {
-  enum intr_level old_level = intr_disable ();
   if (thread_mlfqs) {
+    enum intr_level old_level = intr_disable ();
     int old_priority = t->priority;
     t->priority = thread_calculate_mlfqs_priority (t);
     if (t->status == THREAD_READY && t->priority != old_priority)
@@ -441,12 +445,12 @@ thread_update_priority (struct thread *t)
         ready_threads--;
         thread_make_ready (t);
       }
+    intr_set_level (old_level);
   }
   else
     t->priority = t->base_priority >= t->donated_priority
                   ? t->base_priority
                   : t->donated_priority;
-  intr_set_level (old_level);
 }
 
 bool

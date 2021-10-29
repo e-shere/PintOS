@@ -212,14 +212,14 @@ lock_acquire (struct lock *lock)
   ASSERT (!intr_context ());
   ASSERT (!lock_held_by_current_thread (lock));
 
-  old_level = intr_disable ();
+  sema_down (&lock->priority_sema);
 
-  bool sema_downed = sema_try_down (&lock->semaphore);
+  bool sema_down_success = sema_try_down (&lock->semaphore);
 
-  if (!sema_downed) 
+  if (!sema_down_success) 
     {
-      lock_donate_priority (lock, thread_get_priority ());
       thread_current ()->lock_waiting_on = lock;
+      lock_donate_priority (lock, thread_get_priority ());
       sema_down (&lock->semaphore);
 
       lock->priority = (list_empty (&lock->semaphore.waiters))
@@ -235,7 +235,7 @@ lock_acquire (struct lock *lock)
 
   list_push_back (&thread_current ()->locks_held, &lock->elem);
 
-  intr_set_level (old_level);
+  sema_up (&lock->priority_sema);
 }
 
 /* Tries to acquires LOCK and returns true if successful or false
@@ -273,7 +273,7 @@ lock_release (struct lock *lock)
   ASSERT (lock != NULL);
   ASSERT (lock_held_by_current_thread (lock));
 
-  enum intr_level old_level = intr_disable ();
+  if (!intr_context ()) sema_down (&lock->priority_sema);
 
   list_remove (&lock->elem);
 
@@ -281,8 +281,7 @@ lock_release (struct lock *lock)
   thread_update_priority (thread_current ());
 
   lock->holder = NULL;
-  intr_set_level (old_level);
-  
+  if (!intr_context ()) sema_up (&lock->priority_sema);
   sema_up (&lock->semaphore);
 }
 
@@ -293,7 +292,7 @@ lock_release (struct lock *lock)
    
    Should only be called if lock->sema->waiters contains or 
    is about to contain a thread whose effective priority is
-   "priority". */
+   "priority" AND lock->priority_sema has already been downed. */
 void 
 lock_donate_priority (struct lock *lock, int priority) 
 {
@@ -301,14 +300,27 @@ lock_donate_priority (struct lock *lock, int priority)
     lock->priority = priority;
 
   struct thread *t = lock->holder;
+  
+  sema_down (&t->priority_sema);
+  sema_up (&lock->priority_sema);
+  
   if (t->donated_priority < priority) 
     {
       t->donated_priority = priority;
       thread_update_priority (t);
 
-      if (t->lock_waiting_on)
-        lock_donate_priority (t->lock_waiting_on, priority);
+      struct lock *next_lock = t->lock_waiting_on;
+      if (next_lock)
+        {
+          sema_down (&next_lock->priority_sema);
+          sema_up (&t->priority_sema);
+          lock_donate_priority (next_lock, priority);
+        }
+      else
+        sema_up (&t->priority_sema);
     }
+  else
+    sema_up (&t->priority_sema);
 }
 
 /* Returns true if the current thread holds LOCK, false

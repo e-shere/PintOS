@@ -32,7 +32,7 @@ static struct list ready_array[PRI_MAX - PRI_MIN + 1];
 static struct list all_list;
 
 /* Threads that have run since the last priority update. */
-static struct thread *recently_updated_threads[4];
+static struct thread *recently_updated_threads[RECALCULATION_TICKS];
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -81,17 +81,22 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
+static void thread_make_ready (struct thread *t);
+static void thread_remove_ready (struct thread *t);
 static void update_mlfqs_data (void);
 static void update_load_avg (void);
 static thread_action_func update_recent_cpu;
-static void thread_make_ready (struct thread *t);
-static void thread_remove_ready (struct thread *t);
 static int get_highest_existing_priority (void);
 static int thread_calculate_mlfqs_priority (struct thread *t);
 static struct list *thread_ready_queue_for (struct thread *t);
 
-/* Constants for 4.4BSD scheduler calculations */
-static fp FP_SIXTIETH, FP_FIFTYNINE, FP_PRI_MAX;
+/* Constants for 4.4BSD scheduler calculations. These are not
+   declared as constant since we use inline functions for FP
+   computations and thus we have to initialise them in
+   thread_init */
+static fp FP_SIXTIETH;
+static fp FP_FIFTYNINE;
+static fp FP_PRI_MAX;
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -760,6 +765,21 @@ allocate_tid (void)
   return tid;
 }
 
+/* Adds a thread to the appropriate ready queue. */
+static void
+thread_make_ready (struct thread *t)
+{
+  ready_threads++;
+  list_push_back (thread_ready_queue_for (t), &t->elem);
+}
+
+/* Removes a thread from its ready queue. */
+static void
+thread_remove_ready (struct thread *t)
+{
+  list_remove(&t->elem);
+}
+
 /* Updates load_avg as well as every thread's recent_cpu. */
 static void
 update_mlfqs_data (void)
@@ -787,21 +807,6 @@ update_recent_cpu (struct thread *t, void *aux UNUSED)
                    fp_add_int (load_avg_times_2, 1));
   t->recent_cpu = fp_add_int (fp_mul (coef, t->recent_cpu), t->nice);
   thread_update_priority (t);
-}
-
-/* Adds a thread to the appropriate ready queue. */
-static void
-thread_make_ready (struct thread *t)
-{
-  ready_threads++;
-  list_push_back (thread_ready_queue_for (t), &t->elem);
-}
-
-/* Removes a thread from its ready queue. */
-static void
-thread_remove_ready (struct thread *t)
-{
-  list_remove(&t->elem);
 }
 
 /* Gets the highest priority of any ready thread. */

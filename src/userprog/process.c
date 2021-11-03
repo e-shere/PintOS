@@ -55,7 +55,7 @@ process_execute (const char *args_str)
   strlcpy (args->argv[0], args_str, length+1);
   
   strtok_r (args->argv[0], " ", &save_ptr);
-  for (args->argc = 0; args->argv[args->argc] != NULL; )
+  while (args->argv[args->argc] != NULL)
     {
       args->argc++;
       char *arg = strtok_r (NULL, " ", &save_ptr);
@@ -94,6 +94,7 @@ start_process (void *args_)
       thread_exit ();
     }
   
+  /* Decrement before writing anything to avoid overwriting PHYS_BASE. */
   if_.esp--;
   for (int i = args->argc - 1; i >= 0; i--)
     {

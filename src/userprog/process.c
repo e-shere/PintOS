@@ -21,6 +21,12 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+struct arguments
+  {
+    int argc;
+    char **argv;
+  };
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
@@ -29,12 +35,7 @@ tid_t
 process_execute (const char *args_str) 
 {
   /* The address where the first argument begins */
-  char *args;
-  /* An array consisting of the first argument (the file name) followed by the
-     remaining arguments in reverse order. */
-  char **arg_ptrs;
-  /* The number of arguments. */
-  int argc = 0;
+  struct arguments *args;
   /* The total length of args_str. */
   int length;
   char *save_ptr;
@@ -42,36 +43,27 @@ process_execute (const char *args_str)
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  arg_ptrs = palloc_get_page (0);
-  if (arg_ptrs == NULL)
+  args = palloc_get_page (0);
+  if (args == NULL)
     return TID_ERROR;
   
   length = strnlen (args_str, PGSIZE);
 
-  for (int i = 0; i < length; i++)
-    {
-      if (args_str[i] == ' ')
-        argc++;
-    }
-  /* argc is the number of spaces plus one. */
-  argc++;
-  
-  /* Leave one sizeof(char *) of space between arg_ptrs and args so that arg_ptrs is 
-     null-terminated, allowing start_process() to determine its length. */
-  args = (char *) (arg_ptrs + argc + 1);
+  args->argv = (char **) (((uint8_t *) args) + sizeof (*args) + length + 1);
+  args->argv[0] = (char *) (((uint8_t *) args) + sizeof (*args));
 
-  strlcpy (args, args_str, PGSIZE - (argc + 1) * sizeof(char **));
+  strlcpy (args->argv[0], args_str, length+1);
   
-  arg_ptrs[0] = strtok_r (args, " ", &save_ptr);
-  for (int i = argc - 1; i >= 1; i--)
+  strtok_r (args->argv[0], " ", &save_ptr);
+  for (args->argc = 0; args->argv[args->argc] != NULL; )
     {
+      args->argc++;
       char *arg = strtok_r (NULL, " ", &save_ptr);
-      arg_ptrs[i] = arg;
+      args->argv[args->argc] = arg;
     }
-
   
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (args_str, PRI_DEFAULT, start_process, arg_ptrs);
+  tid = thread_create (args_str, PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
     palloc_free_page (args); 
   return tid;
@@ -80,12 +72,10 @@ process_execute (const char *args_str)
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *arg_ptrs_)
+start_process (void *args_)
 {
-  char **arg_ptrs = arg_ptrs_;
-  char *file_name = arg_ptrs[0];
-  char **argv;
-  int argc;
+  struct arguments *args = args_;
+  char *file_name = args->argv[0];
   struct intr_frame if_;
   bool success;
   
@@ -96,51 +86,51 @@ start_process (void *arg_ptrs_)
   if_.eflags = FLAG_IF | FLAG_MBS;
 
   success = load (file_name, &if_.eip, &if_.esp);
+
+  /* If load failed, quit. */
+  if (!success) 
+    {
+      palloc_free_page (args);
+      thread_exit ();
+    }
   
   if_.esp--;
-  for (argc = 1; arg_ptrs[argc] != NULL; argc++)
+  for (int i = args->argc - 1; i >= 0; i--)
     {
-      char *arg = arg_ptrs[argc];
+      char *arg = args->argv[i];
       int length = strlen (arg);
       if_.esp -= length + 1;
       strlcpy (if_.esp, arg, length + 1);
-      printf ("Saved an argument at %p\n", if_.esp);
+      
+      /* Remember where this string was saved. */
+      args->argv[i] = if_.esp;
     }
-  int length = strlen (file_name);
-  if_.esp -= length + 1;
-  strlcpy (if_.esp, file_name, length + 1);
-  printf ("Saved the file name at %p\n", if_.esp);
-  
   /* Round down to the nearest multiple of 4 to ensure word-alignment. */
   if_.esp = ((void *) (((unsigned int) if_.esp) / 4 * 4));
-  printf ("Rounded esp down to %p\n", if_.esp);
   
-  for (int i = 1; i < argc; i++)
+  /* Null pointer sentinel. */
+  if_.esp -= sizeof (NULL);
+  *(uint8_t *)if_.esp = NULL;
+  
+  for (int i = args->argc - 1; i >= 0; i--)
     {
       if_.esp -= sizeof (char **);
-      *(char **) if_.esp = arg_ptrs[i];
-      printf ("Saved an argument pointer at %p\n", if_.esp);
+      *(char **) if_.esp = args->argv[i];
     }
-  if_.esp -= sizeof (char **);
-  *((char **) if_.esp) = file_name;
-  printf ("Saved the file name pointer at %p\n", if_.esp);
-  argv = if_.esp;
-  if_.esp -= sizeof (char ***);
-  *((char ***) if_.esp) = argv;
-  printf ("Saved argv at %p\n", if_.esp);
-  if_.esp -= sizeof (int *);
-  *((int *) if_.esp) = argc;
-  printf ("Saved argc at %p\n", if_.esp);
-  if_.esp -= sizeof (int *);
-  *((int *) if_.esp) = 0;
-  printf ("Saved the fake return address at %p\n", if_.esp);
+    
+  /* Remember where argv starts. */
+  args->argv = if_.esp;
 
-  /* If load failed, quit. */
-  palloc_free_page (arg_ptrs);
-  if (!success) 
-    thread_exit ();
+  if_.esp -= sizeof (char ***);
+  *((char ***) if_.esp) = args->argv;
+
+  if_.esp -= sizeof (int *);
+  *((int *) if_.esp) = args->argc;
   
-  hex_dump (if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
+  if_.esp -= sizeof (int *);
+  *((uint8_t *) if_.esp) = NULL;
+
+  palloc_free_page (args);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in

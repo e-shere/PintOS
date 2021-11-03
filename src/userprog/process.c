@@ -26,45 +26,121 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *args_str) 
 {
-  char *fn_copy;
+  /* The address where the first argument begins */
+  char *args;
+  /* An array consisting of the first argument (the file name) followed by the
+     remaining arguments in reverse order. */
+  char **arg_ptrs;
+  /* The number of arguments. */
+  int argc = 0;
+  /* The total length of args_str. */
+  int length;
+  char *save_ptr;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  arg_ptrs = palloc_get_page (0);
+  if (arg_ptrs == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  
+  length = strnlen (args_str, PGSIZE);
 
+  for (int i = 0; i < length; i++)
+    {
+      if (args_str[i] == ' ')
+        argc++;
+    }
+  /* argc is the number of spaces plus one. */
+  argc++;
+  
+  /* Leave one sizeof(char *) of space between arg_ptrs and args so that arg_ptrs is 
+     null-terminated, allowing start_process() to determine its length. */
+  args = (char *) (arg_ptrs + argc + 1);
+
+  strlcpy (args, args_str, PGSIZE - (argc + 1) * sizeof(char **));
+  
+  arg_ptrs[0] = strtok_r (args, " ", &save_ptr);
+  for (int i = argc - 1; i >= 1; i--)
+    {
+      char *arg = strtok_r (NULL, " ", &save_ptr);
+      arg_ptrs[i] = arg;
+    }
+
+  
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (args_str, PRI_DEFAULT, start_process, arg_ptrs);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (args); 
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *arg_ptrs_)
 {
-  char *file_name = file_name_;
+  char **arg_ptrs = arg_ptrs_;
+  char *file_name = arg_ptrs[0];
+  char **argv;
+  int argc;
   struct intr_frame if_;
   bool success;
-
+  
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
   success = load (file_name, &if_.eip, &if_.esp);
+  
+  if_.esp--;
+  for (argc = 1; arg_ptrs[argc] != NULL; argc++)
+    {
+      char *arg = arg_ptrs[argc];
+      int length = strlen (arg);
+      if_.esp -= length + 1;
+      strlcpy (if_.esp, arg, length + 1);
+      printf ("Saved an argument at %p\n", if_.esp);
+    }
+  int length = strlen (file_name);
+  if_.esp -= length + 1;
+  strlcpy (if_.esp, file_name, length + 1);
+  printf ("Saved the file name at %p\n", if_.esp);
+  
+  /* Round down to the nearest multiple of 4 to ensure word-alignment. */
+  if_.esp = ((void *) (((unsigned int) if_.esp) / 4 * 4));
+  printf ("Rounded esp down to %p\n", if_.esp);
+  
+  for (int i = 1; i < argc; i++)
+    {
+      if_.esp -= sizeof (char **);
+      *(char **) if_.esp = arg_ptrs[i];
+      printf ("Saved an argument pointer at %p\n", if_.esp);
+    }
+  if_.esp -= sizeof (char **);
+  *((char **) if_.esp) = file_name;
+  printf ("Saved the file name pointer at %p\n", if_.esp);
+  argv = if_.esp;
+  if_.esp -= sizeof (char ***);
+  *((char ***) if_.esp) = argv;
+  printf ("Saved argv at %p\n", if_.esp);
+  if_.esp -= sizeof (int *);
+  *((int *) if_.esp) = argc;
+  printf ("Saved argc at %p\n", if_.esp);
+  if_.esp -= sizeof (int *);
+  *((int *) if_.esp) = 0;
+  printf ("Saved the fake return address at %p\n", if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
+  palloc_free_page (arg_ptrs);
   if (!success) 
     thread_exit ();
+  
+  hex_dump (if_.esp, if_.esp, PHYS_BASE - if_.esp, true);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -449,7 +525,7 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE - 12;
+        *esp = PHYS_BASE;
       else
         palloc_free_page (kpage);
     }

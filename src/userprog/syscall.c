@@ -12,7 +12,6 @@ struct handler {
   handler_func *func;
 };
 
-static struct handler syscall_map[NUM_SYSCALL];
 
 static void syscall_handler (struct intr_frame *);
 static handler_func sys_halt;
@@ -29,23 +28,27 @@ static handler_func sys_seek;
 static handler_func sys_tell;
 static handler_func sys_close;
 
+static struct handler syscall_map[NUM_SYSCALL] =
+{
+  [SYS_HALT]     = (struct handler) { .num_args = 0, .func = sys_halt},
+  [SYS_EXIT]     = (struct handler) { .num_args = 1, .func = sys_exit},
+  [SYS_EXEC]     = (struct handler) { .num_args = 1, .func = sys_exec},
+  [SYS_WAIT]     = (struct handler) { .num_args = 1, .func = sys_wait},
+  [SYS_CREATE]   = (struct handler) { .num_args = 2, .func = sys_create},
+  [SYS_REMOVE]   = (struct handler) { .num_args = 1, .func = sys_remove},
+  [SYS_OPEN]     = (struct handler) { .num_args = 1, .func = sys_open},
+  [SYS_FILESIZE] = (struct handler) { .num_args = 1, .func = sys_filesize},
+  [SYS_READ]     = (struct handler) { .num_args = 3, .func = sys_read},
+  [SYS_WRITE]    = (struct handler) { .num_args = 3, .func = sys_write},
+  [SYS_SEEK]     = (struct handler) { .num_args = 2, .func = sys_seek},
+  [SYS_TELL]     = (struct handler) { .num_args = 1, .func = sys_tell},
+  [SYS_CLOSE]    = (struct handler) { .num_args = 1, .func = sys_close}
+};
+
 void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
-  syscall_map[SYS_HALT]     = (struct handler) {0, sys_halt};
-  syscall_map[SYS_EXIT]     = (struct handler) {1, sys_exit};
-  syscall_map[SYS_EXEC]     = (struct handler) {1, sys_exec};
-  syscall_map[SYS_WAIT]     = (struct handler) {1, sys_wait};
-  syscall_map[SYS_CREATE]   = (struct handler) {2, sys_create};
-  syscall_map[SYS_REMOVE]   = (struct handler) {1, sys_remove};
-  syscall_map[SYS_OPEN]     = (struct handler) {1, sys_open};
-  syscall_map[SYS_FILESIZE] = (struct handler) {1, sys_filesize};
-  syscall_map[SYS_READ]     = (struct handler) {3, sys_read};
-  syscall_map[SYS_WRITE]    = (struct handler) {3, sys_write};
-  syscall_map[SYS_SEEK]     = (struct handler) {2, sys_seek};
-  syscall_map[SYS_TELL]     = (struct handler) {1, sys_tell};
-  syscall_map[SYS_CLOSE]    = (struct handler) {1, sys_close};
 }
 
 static void

@@ -5,7 +5,7 @@
 #include "threads/thread.h"
 #include "devices/shutdown.h"
 
-typedef void (handler_func) (uint32_t *return_val, const uint32_t *args);
+typedef uint32_t (handler_func) (const uint32_t, const uint32_t, const uint32_t);
 
 struct handler {
   int num_args;
@@ -51,98 +51,99 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  uint32_t *arg = (uint32_t*)f->esp;
-  // TODO: valid_addr(arg)
+  uint32_t *param = (uint32_t*)f->esp;
+  // TODO: valid_addr(param)
 
-  int syscall = *(int *)arg;
+  int syscall = *(int *)param;
   if (syscall < 0 || syscall >= NUM_SYSCALL)
     thread_exit (); // should we do something different??
 
   struct handler h = syscall_map[syscall];
+  uint32_t args[3] = { 0 };
   for (int i = 1; i <= h.num_args; i++) {
-    // TODO: check valid_addr(arg + i)
+    // TODO: check valid_addr(param + i)
+    args[i] = *(param + i);
   }
 
-  uint32_t return_val = f->eax;
-  h.func(&return_val, &arg[1]);
-  f->eax = return_val;
+  f->eax = h.func(args[1], args[2], args[3]);
 }
 
-static void
-sys_halt (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t
+sys_halt (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
   shutdown_power_off();
+  return 0;
 }
 
 /* The UNUSED in the below functions will be removed once we implement them */
-static void 
-sys_exit (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_exit (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_exec (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_exec (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_wait (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_wait (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_create (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_create (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_remove (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_remove (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_open (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_open (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_filesize (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_filesize (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_read (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_read (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_write (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_write (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_seek (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_seek (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_tell (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_tell (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }
 
-static void 
-sys_close (uint32_t *return_val UNUSED, const uint32_t *args UNUSED)
+static uint32_t 
+sys_close (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
 {
-
+  return -1;
 }

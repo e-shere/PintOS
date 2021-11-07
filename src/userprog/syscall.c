@@ -4,6 +4,7 @@
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "devices/input.h"
+#include "filesys/file.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -27,8 +28,13 @@ int write (int fd, const void *buffer, unsigned size)
     return -1
   }
 
+  unsigned bytes_written = 0;
+
   if (fd == 1) {
     putbuf(buffer, size);
+    bytes_written = size;
     return;
   }
+
+  return bytes_written;
 }

@@ -21,6 +21,10 @@ syscall_handler (struct intr_frame *f UNUSED)
   thread_exit ();
 }
 
+void exit (int status) {
+  thread_exit();
+}
+
 int write (int fd, const void *buffer, unsigned size) 
  {
   if (buffer = NULL || !is_user_vaddr(buffer)) 

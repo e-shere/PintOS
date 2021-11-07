@@ -33,7 +33,6 @@ int write (int fd, const void *buffer, unsigned size)
   if (fd == 1) {
     putbuf(buffer, size);
     bytes_written = size;
-    return;
   }
 
   return bytes_written;

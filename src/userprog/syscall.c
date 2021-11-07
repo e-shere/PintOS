@@ -3,6 +3,7 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "devices/input.h"
 
 static void syscall_handler (struct intr_frame *);
 
@@ -17,4 +18,17 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   printf ("system call!\n");
   thread_exit ();
+}
+
+int write (int fd, const void *buffer, unsigned size) 
+ {
+  if (buffer = NULL || !is_user_vaddr(buffer)) 
+  {
+    return -1
+  }
+
+  if (fd == 1) {
+    putbuf(buffer, size);
+    return;
+  }
 }

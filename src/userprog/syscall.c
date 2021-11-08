@@ -19,7 +19,7 @@ static void syscall_handler (struct intr_frame *);
 static bool is_valid_user_string (const char *ustr, int max_length);
 static bool is_valid_user_address (const uint8_t *uaddr);
 static bool is_valid_user_address_range (uint8_t *uaddr, uint32_t size);
-static bool get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size);
+//static bool get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size);
 static int get_user_byte (const uint8_t *uaddr);
 
 static handler_func sys_halt;
@@ -62,8 +62,12 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
-  uint32_t *param = (uint32_t*)f->esp;
-  // TODO: valid_addr(param)
+  uint32_t *param = (uint32_t *) f->esp;
+  if (!is_valid_user_address_range ((uint8_t *) param, sizeof (uint32_t *)))
+    {
+      sys_exit (-1);
+      return;
+    }
 
   int syscall = *(int *)param;
   if (syscall < 0 || syscall >= NUM_SYSCALL)
@@ -71,8 +75,13 @@ syscall_handler (struct intr_frame *f UNUSED)
 
   struct handler h = syscall_map[syscall];
   uint32_t args[3] = { 0 };
+  if (!is_valid_user_address_range ((uint8_t *) (param + 1), 
+    h.num_args * (sizeof (uint32_t *))))
+    {
+      sys_exit (-1);
+      return;
+    }
   for (int i = 1; i <= h.num_args; i++) {
-    // TODO: check valid_addr(param + i)
     args[i] = *(param + i);
   }
 
@@ -88,9 +97,11 @@ sys_halt (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t
 
 /* The UNUSED in the below functions will be removed once we implement them */
 static uint32_t 
-sys_exit (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_exit (int status)
 {
-  return -1;
+  thread_exit ();
+  // TODO: close all open files
+  // TODO: send status to the kernel
 }
 
 static uint32_t 
@@ -136,9 +147,22 @@ sys_read (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t
 }
 
 static uint32_t 
-sys_write (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_write (int fd, const void *buffer, unsigned size)
 {
-  return -1;
+  if (buffer = NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
+    {
+      sys_exit (-1);
+      return;
+    }
+
+  unsigned bytes_written = 0;
+
+  if (fd == 1) {
+    putbuf(buffer, size);
+    bytes_written = size;
+  }
+
+  return bytes_written;
 }
 
 static uint32_t 
@@ -237,7 +261,7 @@ is_valid_user_address_range (uint8_t *start_addr, uint32_t size)
 }
 
 /* Reads size bytes at user virtual address UADDR into buf
-   Returns false if the read failed. */
+   Returns false if the read failed.
 static bool
 get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size)
 {
@@ -252,6 +276,7 @@ get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size)
       buf[i] = current_value;
     }
 }
+*/
 
 /* Reads a byte at user virtual address UADDR. We assume this is not kernel
    memory. Returns the byte value if successful, -1 if a segfault
@@ -263,25 +288,4 @@ get_user_byte (const uint8_t *uaddr)
   asm  ("movl $1f, %0; movzbl %1, %0; 1:"
     : "=&a" (result) : "m" (*uaddr));
   return result;
-}
-
-void exit (int status) {
-  thread_exit();
-}
-
-int write (int fd, const void *buffer, unsigned size) 
- {
-  if (buffer = NULL || !is_user_vaddr(buffer)) 
-  {
-    return -1
-  }
-
-  unsigned bytes_written = 0;
-
-  if (fd == 1) {
-    putbuf(buffer, size);
-    bytes_written = size;
-  }
-
-  return bytes_written;
 }

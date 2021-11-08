@@ -4,6 +4,8 @@
 #include <syscall-nr.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
+#include "devices/input.h"
+#include "filesys/file.h"
 #include "devices/shutdown.h"
 
 typedef uint32_t (handler_func) (const uint32_t, const uint32_t, const uint32_t);
@@ -12,7 +14,6 @@ struct handler {
   int num_args;
   handler_func *func;
 };
-
 
 static void syscall_handler (struct intr_frame *);
 static bool is_valid_user_string (const char *ustr, int max_length);
@@ -262,4 +263,25 @@ get_user_byte (const uint8_t *uaddr)
   asm  ("movl $1f, %0; movzbl %1, %0; 1:"
     : "=&a" (result) : "m" (*uaddr));
   return result;
+}
+
+void exit (int status) {
+  thread_exit();
+}
+
+int write (int fd, const void *buffer, unsigned size) 
+ {
+  if (buffer = NULL || !is_user_vaddr(buffer)) 
+  {
+    return -1
+  }
+
+  unsigned bytes_written = 0;
+
+  if (fd == 1) {
+    putbuf(buffer, size);
+    bytes_written = size;
+  }
+
+  return bytes_written;
 }

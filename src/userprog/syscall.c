@@ -8,7 +8,7 @@
 #include "filesys/file.h"
 #include "devices/shutdown.h"
 
-typedef uint32_t (handler_func) (const uint32_t, const uint32_t, const uint32_t);
+typedef uint32_t (handler_func) (const void *, const void *, const void *);
 
 struct handler {
   int num_args;
@@ -21,6 +21,8 @@ static bool is_valid_user_address (const uint8_t *uaddr);
 static bool is_valid_user_address_range (uint8_t *uaddr, uint32_t size);
 //static bool get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size);
 static int get_user_byte (const uint8_t *uaddr);
+
+static void exit (int status);
 
 static handler_func sys_halt;
 static handler_func sys_exit;
@@ -65,7 +67,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   uint32_t *param = (uint32_t *) f->esp;
   if (!is_valid_user_address_range ((uint8_t *) param, sizeof (uint32_t *)))
     {
-      sys_exit (-1);
+      exit (-1);
       return;
     }
 
@@ -74,22 +76,30 @@ syscall_handler (struct intr_frame *f UNUSED)
     thread_exit (); // should we do something different??
 
   struct handler h = syscall_map[syscall];
-  uint32_t args[3] = { 0 };
+  void *args[3] = { 0 };
   if (!is_valid_user_address_range ((uint8_t *) (param + 1), 
     h.num_args * (sizeof (uint32_t *))))
     {
-      sys_exit (-1);
+      exit (-1);
       return;
     }
   for (int i = 1; i <= h.num_args; i++) {
-    args[i] = *(param + i);
+    args[i] = (void *) *(param + i);
   }
 
   f->eax = h.func(args[1], args[2], args[3]);
 }
 
+static void exit (const int status UNUSED)
+{
+  thread_exit ();
+  // TODO: close all open files
+  // TODO: send status to the kernel
+}
+
+
 static uint32_t
-sys_halt (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_halt (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   shutdown_power_off();
   return 0;
@@ -97,62 +107,66 @@ sys_halt (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t
 
 /* The UNUSED in the below functions will be removed once we implement them */
 static uint32_t 
-sys_exit (int status)
+sys_exit (const void *status_, const void *arg2 UNUSED, const void *arg3 UNUSED )
 {
-  thread_exit ();
-  // TODO: close all open files
-  // TODO: send status to the kernel
+  int status = *(int *) status_;
+  exit (status);
+  NOT_REACHED ();
+  return 0;
 }
 
 static uint32_t 
-sys_exec (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_exec (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_wait (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_wait (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_create (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_create (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_remove (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_remove (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_open (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_open (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_filesize (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_filesize (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_read (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_read (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_write (int fd, const void *buffer, unsigned size)
+sys_write (const void *fd_, const void *buffer, const void *size_)
 {
-  if (buffer = NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
+  int fd = *(int *) fd_;
+  unsigned size = *(unsigned *) size_;
+  if (buffer == NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
     {
-      sys_exit (-1);
-      return;
+      exit (-1);
+      NOT_REACHED ();
+      return 0;
     }
 
   unsigned bytes_written = 0;
@@ -166,19 +180,19 @@ sys_write (int fd, const void *buffer, unsigned size)
 }
 
 static uint32_t 
-sys_seek (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_seek (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_tell (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_tell (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }
 
 static uint32_t 
-sys_close (const uint32_t arg1 UNUSED, const uint32_t arg2 UNUSED, const uint32_t arg3 UNUSED)
+sys_close (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   return -1;
 }

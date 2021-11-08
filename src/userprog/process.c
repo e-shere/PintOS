@@ -21,50 +21,117 @@
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
+struct arguments
+  {
+    int argc;
+    char **argv;
+  };
+
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
-process_execute (const char *file_name) 
+process_execute (const char *args_str) 
 {
-  char *fn_copy;
+  /* The address where the first argument begins */
+  struct arguments *args;
+  /* The total length of args_str. */
+  int length;
+  char *save_ptr;
   tid_t tid;
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  fn_copy = palloc_get_page (0);
-  if (fn_copy == NULL)
+  args = palloc_get_page (0);
+  if (args == NULL)
     return TID_ERROR;
-  strlcpy (fn_copy, file_name, PGSIZE);
+  
+  length = strnlen (args_str, PGSIZE);
 
+  args->argv = (char **) (((uint8_t *) args) + sizeof (*args) + length + 1);
+  args->argv[0] = (char *) (((uint8_t *) args) + sizeof (*args));
+
+  strlcpy (args->argv[0], args_str, length+1);
+  
+  strtok_r (args->argv[0], " ", &save_ptr);
+  while (args->argv[args->argc] != NULL)
+    {
+      args->argc++;
+      char *arg = strtok_r (NULL, " ", &save_ptr);
+      args->argv[args->argc] = arg;
+    }
+  
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, fn_copy);
+  tid = thread_create (args_str, PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
-    palloc_free_page (fn_copy); 
+    palloc_free_page (args); 
   return tid;
 }
 
 /* A thread function that loads a user process and starts it
    running. */
 static void
-start_process (void *file_name_)
+start_process (void *args_)
 {
-  char *file_name = file_name_;
+  struct arguments *args = args_;
+  char *file_name = args->argv[0];
   struct intr_frame if_;
   bool success;
-
+  
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
   success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  palloc_free_page (file_name);
   if (!success) 
-    thread_exit ();
+    {
+      palloc_free_page (args);
+      thread_exit ();
+    }
+  
+  /* Decrement before writing anything to avoid overwriting PHYS_BASE. */
+  if_.esp--;
+  for (int i = args->argc - 1; i >= 0; i--)
+    {
+      char *arg = args->argv[i];
+      int length = strlen (arg);
+      if_.esp -= length + 1;
+      strlcpy (if_.esp, arg, length + 1);
+      
+      /* Remember where this string was saved. */
+      args->argv[i] = if_.esp;
+    }
+  /* Round down to the nearest multiple of 4 to ensure word-alignment. */
+  if_.esp = ((void *) (((unsigned int) if_.esp) / 4 * 4));
+  
+  /* Null pointer sentinel. */
+  if_.esp -= sizeof (NULL);
+  *(uint8_t *)if_.esp = NULL;
+  
+  for (int i = args->argc - 1; i >= 0; i--)
+    {
+      if_.esp -= sizeof (char **);
+      *(char **) if_.esp = args->argv[i];
+    }
+    
+  /* Remember where argv starts. */
+  args->argv = if_.esp;
+
+  if_.esp -= sizeof (char ***);
+  *((char ***) if_.esp) = args->argv;
+
+  if_.esp -= sizeof (int *);
+  *((int *) if_.esp) = args->argc;
+  
+  if_.esp -= sizeof (int *);
+  *((uint8_t *) if_.esp) = NULL;
+
+  palloc_free_page (args);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -449,7 +516,7 @@ setup_stack (void **esp)
     {
       success = install_page (((uint8_t *) PHYS_BASE) - PGSIZE, kpage, true);
       if (success)
-        *esp = PHYS_BASE - 12;
+        *esp = PHYS_BASE;
       else
         palloc_free_page (kpage);
     }

@@ -70,7 +70,6 @@ syscall_handler (struct intr_frame *f UNUSED)
       exit (-1);
       return;
     }
-
   int syscall = *(int *)param;
   if (syscall < 0 || syscall >= NUM_SYSCALL)
     thread_exit (); // should we do something different??
@@ -84,10 +83,9 @@ syscall_handler (struct intr_frame *f UNUSED)
       return;
     }
   for (int i = 1; i <= h.num_args; i++) {
-    args[i] = (void *) *(param + i);
+    args[i - 1] = (void *) (param + i);
   }
-
-  f->eax = h.func(args[1], args[2], args[3]);
+  f->eax = h.func(args[0], args[1], args[2]);
 }
 
 static void exit (const int status UNUSED)
@@ -158,17 +156,17 @@ sys_read (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNU
 }
 
 static uint32_t 
-sys_write (const void *fd_, const void *buffer, const void *size_)
+sys_write (const void *fd_, const void *buffer_, const void *size_)
 {
   int fd = *(int *) fd_;
   unsigned size = *(unsigned *) size_;
+  const void *buffer = *(const void **) buffer_;
   if (buffer == NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
     {
       exit (-1);
       NOT_REACHED ();
-      return 0;
+      //return 0;
     }
-
   unsigned bytes_written = 0;
 
   if (fd == 1) {
@@ -255,13 +253,11 @@ static bool
 is_valid_user_address_range (uint8_t *start_addr, uint32_t size)
 {
   uint8_t *end_addr = start_addr + size;
-
   // Case 1
   if (pg_no (start_addr) == pg_no (end_addr))
     return is_valid_user_address (start_addr);
-
   // Case 2
-  if (!is_valid_user_address (start_addr) || !is_valid_user_address (end_addr))
+  if (!is_valid_user_address (start_addr) || !is_valid_user_address (end_addr - 1))
     return false;
   for (uint8_t *current_addr = start_addr + PGSIZE; 
        current_addr < end_addr;

@@ -160,7 +160,7 @@ page_fault (struct intr_frame *f)
   else
    {
       f->eip = (void *) f->eax;
-      f->eax = 0xffffff;
+      f->eax = -1;
    }
 }
 

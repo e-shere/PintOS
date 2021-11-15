@@ -8,4 +8,6 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
+void process_exit_with_status (int);
+
 #endif /* userprog/process.h */

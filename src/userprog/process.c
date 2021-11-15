@@ -8,6 +8,8 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "lib/kernel/hash.h"
+#include "lib/kernel/list.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -15,11 +17,28 @@
 #include "threads/init.h"
 #include "threads/interrupt.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+struct process
+  {
+    tid_t tid;
+    struct hash_elem process_elem;
+    struct semaphore wait_sema;
+    struct list_elem child_elem;
+    struct list dead_children;
+    tid_t parent_tid;
+    int exit_status;
+  };
+
+static struct process *get_process (tid_t); // Pointer to process with this id
+static bool is_running (tid_t); // True iff id is in table and has sema with value == 0
+static struct process *create_process (tid_t child, tid_t parent); // Creates a new struct process and adds it to the table
+static void delete_process (tid_t); // Removes mapping and frees process memory
 
 struct arguments
   {
@@ -66,6 +85,11 @@ process_execute (const char *args_str)
   tid = thread_create (args_str, PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
     palloc_free_page (args); 
+  
+  enum intr_level old_level = intr_disable ();
+  create_process (tid, thread_current ()->tid);
+  intr_set_level (old_level);
+
   return tid;
 }
 
@@ -155,11 +179,56 @@ start_process (void *args_)
 int
 process_wait (tid_t child_tid UNUSED)
 {
-  struct semaphore sema = {0};
-  sema_init (&sema, 0);
-  sema_down (&sema);
-  NOT_REACHED ();
-  return -1;
+  enum intr_level old_level = intr_disable ();
+
+  struct process *p = get_process (child_tid);
+  if (p == NULL) 
+    // This process doesn't exist or has already been waited on.
+    return -1;
+  if (p->parent_tid != thread_current ()->tid)
+    // This is not this thread's child
+    return -1;
+  sema_down (&p->wait_sema);
+  int exit_status = p->exit_status;
+  list_remove (&p->child_elem);
+  delete_process (child_tid);
+  
+  intr_set_level (old_level);
+
+  return exit_status;
+}
+
+void
+process_exit_with_status (int exit_status)
+{
+  enum intr_level old_level = intr_disable ();
+
+  tid_t tid = thread_current ()->tid;
+  struct process *p = get_process (tid);
+
+  struct list_elem *e;
+  for (e = list_begin (&p->dead_children); 
+       e != list_end (&p->dead_children); 
+       e = list_next (e))
+    {
+      delete_process (list_entry (e, struct process, child_elem)->tid);
+    }
+  
+  sema_up (&p->wait_sema);
+
+  if (is_running (p->parent_tid))
+    {
+      p->exit_status = exit_status;
+      struct process *parent = get_process (p->parent_tid);
+      list_push_back (&parent->dead_children, &p->child_elem);
+    }
+  else
+    {
+      delete_process (tid);
+    }
+
+  intr_set_level (old_level);
+  thread_exit ();
 }
 
 /* Free the current process's resources. */

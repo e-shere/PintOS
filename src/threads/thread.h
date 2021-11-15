@@ -106,6 +106,7 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    pid_t pid;                          /* Process identifier. */
 #endif
 
     /* Owned by thread.c. */

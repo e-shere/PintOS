@@ -16,10 +16,16 @@
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+
+static struct hash process_table;
+
+static hash_hash_func process_hash;
+static hash_less_func process_less;
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
@@ -37,7 +43,7 @@ struct process
 
 static struct process *get_process (tid_t); // Pointer to process with this id
 static bool is_running (tid_t); // True iff id is in table and has sema with value == 0
-static struct process *create_process (tid_t child, tid_t parent); // Creates a new struct process and adds it to the table
+static struct process *create_process (tid_t tid, tid_t parent_tid); // Creates a new struct process and adds it to the table
 static void delete_process (tid_t); // Removes mapping and frees process memory
 
 struct arguments
@@ -45,6 +51,62 @@ struct arguments
     int argc;
     char **argv;
   };
+
+void
+process_init (void)
+{
+  hash_init (&process_table, process_hash, process_less, NULL);
+}
+
+static unsigned
+process_hash (const struct hash_elem *e, void *aux UNUSED)
+{
+  return hash_int (hash_entry (e, struct process, process_elem)->tid);
+}
+
+static bool
+process_less (const struct hash_elem *a, 
+              const struct hash_elem *b, void *aux UNUSED)
+{
+  return hash_entry (a, struct process, process_elem)->tid 
+         < hash_entry (b, struct process, process_elem)->tid;
+}
+
+static struct process *get_process (tid_t tid)
+{
+  struct process p;
+  struct hash_elem *e;
+  
+  p.tid = tid;
+  e = hash_find (&process_table, &p.process_elem);
+  return e != NULL ? hash_entry (e, struct process, process_elem) : NULL;
+}
+
+static bool is_running (tid_t tid)
+{
+  struct process *p = get_process (tid);
+  return p != NULL && p->wait_sema.value == 0; // TODO: Avoid accessing value directly
+}
+
+static struct process *create_process (tid_t tid, tid_t parent_tid)
+{
+  struct process *p = malloc (sizeof (struct process));
+  p->tid = tid;
+  p->parent_tid = parent_tid;
+  hash_insert (&process_table, &p->process_elem);
+  list_init (&p->dead_children);
+  sema_init (&p->wait_sema, 0);
+  return p;
+}
+
+static void
+delete_process (tid_t tid)
+{
+  struct process p;
+  p.tid = tid;
+  struct hash_elem *e = hash_delete (&process_table, &p.process_elem);
+  free (hash_entry (e, struct process, process_elem));
+}
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -82,7 +144,7 @@ process_execute (const char *args_str)
     }
   
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (args_str, PRI_DEFAULT, start_process, args);
+  tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
     palloc_free_page (args); 
   
@@ -135,7 +197,7 @@ start_process (void *args_)
   
   /* Null pointer sentinel. */
   if_.esp -= sizeof (NULL);
-  *(uint8_t *)if_.esp = NULL;
+  *(uint8_t **) if_.esp = NULL;
   
   for (int i = args->argc - 1; i >= 0; i--)
     {
@@ -153,7 +215,7 @@ start_process (void *args_)
   *((int *) if_.esp) = args->argc;
   
   if_.esp -= sizeof (int *);
-  *((uint8_t *) if_.esp) = NULL;
+  *((uint8_t **) if_.esp) = NULL;
 
   palloc_free_page (args);
 
@@ -185,12 +247,13 @@ process_wait (tid_t child_tid UNUSED)
   if (p == NULL) 
     // This process doesn't exist or has already been waited on.
     return -1;
-  if (p->parent_tid != thread_current ()->tid)
+  if (p->parent_tid != thread_tid ())
     // This is not this thread's child
     return -1;
   sema_down (&p->wait_sema);
   int exit_status = p->exit_status;
-  list_remove (&p->child_elem);
+  if (thread_tid () != thread_get_main_tid ())
+    list_remove (&p->child_elem);
   delete_process (child_tid);
   
   intr_set_level (old_level);
@@ -201,6 +264,8 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit_with_status (int exit_status)
 {
+  printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
+
   enum intr_level old_level = intr_disable ();
 
   tid_t tid = thread_current ()->tid;
@@ -222,7 +287,7 @@ process_exit_with_status (int exit_status)
       struct process *parent = get_process (p->parent_tid);
       list_push_back (&parent->dead_children, &p->child_elem);
     }
-  else
+  else if (p->parent_tid != thread_get_main_tid ())
     {
       delete_process (tid);
     }
@@ -271,7 +336,7 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
-
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -455,7 +520,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   file_close (file);
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);

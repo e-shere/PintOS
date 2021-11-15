@@ -106,7 +106,6 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
-    pid_t pid;                          /* Process identifier. */
 #endif
 
     /* Owned by thread.c. */
@@ -120,7 +119,9 @@ extern bool thread_mlfqs;
 
 void thread_init (void);
 void thread_start (void);
-size_t threads_ready(void);
+size_t threads_ready (void);
+
+tid_t thread_get_main_tid (void);
 
 void thread_tick (void);
 void thread_print_stats (void);

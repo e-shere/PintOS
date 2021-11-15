@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include "threads/vaddr.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -62,6 +63,7 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  process_init ();
 }
 
 static void
@@ -119,7 +121,7 @@ static uint32_t
 sys_exit (const void *status_, const void *arg2 UNUSED, const void *arg3 UNUSED )
 {
   int status = *(int *) status_;
-  exit (status);
+  do_exit (status);
   NOT_REACHED ();
   return 0;
 }

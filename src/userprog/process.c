@@ -294,6 +294,7 @@ process_exit_with_status (int exit_status)
 
   intr_set_level (old_level);
   thread_exit ();
+  NOT_REACHED ();
 }
 
 /* Free the current process's resources. */

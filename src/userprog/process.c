@@ -124,7 +124,7 @@ process_execute (const char *args_str)
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  args = palloc_get_page (0);
+  args = palloc_get_page (PAL_ZERO);
   if (args == NULL)
     return TID_ERROR;
   
@@ -177,7 +177,7 @@ start_process (void *args_)
   if (!success) 
     {
       palloc_free_page (args);
-      thread_exit ();
+      process_exit_with_status (-1);
     }
   
   /* Decrement before writing anything to avoid overwriting PHYS_BASE. */

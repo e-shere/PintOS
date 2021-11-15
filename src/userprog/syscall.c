@@ -129,7 +129,7 @@ sys_exit (const void *status_, const void *arg2 UNUSED, const void *arg3 UNUSED 
 static uint32_t 
 sys_exec (const void *file, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  char *cmd_line = (char *) file;
+  char *cmd_line = *(char **) file;
   return tid_to_pid (process_execute (cmd_line));
 }
 

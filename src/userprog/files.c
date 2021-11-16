@@ -39,6 +39,7 @@ files_open (struct files *f, char *file_name)
   struct file *opened_file = filesys_open (file_name);
   if (opened_file == NULL)
     return FD_FAILURE;
+    
   struct file_descriptor *file_desc = malloc (sizeof(struct file_descriptor));
   *file_desc =
   (struct file_descriptor) {

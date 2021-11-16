@@ -6,6 +6,7 @@
 #include "filesys/file.h"
 
 #define MAX_FILE_COUNT 16
+#define FD_FAILURE
 
 struct files
   {

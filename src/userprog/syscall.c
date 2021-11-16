@@ -191,9 +191,14 @@ sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSE
 }
 
 static uint32_t 
-sys_filesize (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_filesize (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  return -1;
+  uint32_t fd = *(uint32_t *) fd_;
+  struct files current_files = get_current_files ();
+  
+  if (!files_is_open (&current_files, fd))
+    return -1;
+  return file_length (files_get (&current_files, fd));
 }
 
 static uint32_t 

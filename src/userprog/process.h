@@ -25,7 +25,7 @@ struct process
     struct files files;
   };
 
-static struct process *get_process (tid_t); // Pointer to process with this id
+struct process *get_process (tid_t); // Pointer to process with this id
 
 void process_exit_with_status (int);
 

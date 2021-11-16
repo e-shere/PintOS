@@ -19,7 +19,7 @@ struct file_descriptor
 
 
 struct files
-get_current_files ()
+get_current_files (void)
 {
   return get_process (thread_current ()->tid)->files;
 }

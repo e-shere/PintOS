@@ -65,7 +65,7 @@ process_less (const struct hash_elem *a,
          < hash_entry (b, struct process, process_elem)->tid;
 }
 
-static struct process *get_process (tid_t tid)
+struct process *get_process (tid_t tid)
 {
   struct process p;
   struct hash_elem *e;

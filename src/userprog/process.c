@@ -8,6 +8,8 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "userprog/files.h"
+#include "lib/kernel/bitmap.h"
 #include "lib/kernel/hash.h"
 #include "lib/kernel/list.h"
 #include "filesys/directory.h"
@@ -34,11 +36,14 @@ struct process
   {
     tid_t tid;
     struct hash_elem process_elem;
+
     struct semaphore wait_sema;
     struct list_elem child_elem;
     struct list dead_children;
     tid_t parent_tid;
     int exit_status;
+    
+    struct files files;
   };
 
 static struct process *get_process (tid_t); // Pointer to process with this id
@@ -99,6 +104,7 @@ static struct process *create_process (tid_t tid, tid_t parent_tid)
   hash_insert (&process_table, &p->process_elem);
   list_init (&p->dead_children);
   sema_init (&p->wait_sema, 0);
+  files_init_files (&p->files);
   return p;
 }
 

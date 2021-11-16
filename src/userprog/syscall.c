@@ -1,5 +1,6 @@
 #include "userprog/syscall.h"
 #include "userprog/process.h"
+#include "userprog/files.h"
 #include "threads/vaddr.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -179,9 +180,14 @@ sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNU
 }
 
 static uint32_t 
-sys_open (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  return -1;
+  char *filename = *(char**) filename_;
+  if (!is_valid_user_string (filename, PGSIZE))
+    do_exit (-1);
+
+  struct files current_file = get_current_files ();
+  return files_open(&current_file, filename);
 }
 
 static uint32_t 

@@ -19,7 +19,7 @@ struct file_descriptor
 void 
 files_init_files (struct files *f)
 {
-  f->fd_map = bitmap_create_in_buf (MAX_FILE_COUNT + 2, &f->fd_map_buf, sizeof (f->fd_map_buf));
+  f->fd_map = bitmap_create (MAX_FILE_COUNT + 3);
   bitmap_set (f->fd_map, 0, true);
   bitmap_set (f->fd_map, 1, true);
   hash_init (&f->fd_table, fd_hash, fd_less, NULL);

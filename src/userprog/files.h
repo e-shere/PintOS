@@ -10,7 +10,6 @@
 
 struct files
   {
-    uint32_t fd_map_buf;
     struct bitmap *fd_map;
     struct hash fd_table;
   };

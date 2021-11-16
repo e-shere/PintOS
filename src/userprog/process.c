@@ -50,6 +50,9 @@ struct arguments
   {
     int argc;
     char **argv;
+    struct semaphore load_sema;
+    bool load_success;
+    tid_t parent_tid;
   };
 
 void
@@ -128,6 +131,9 @@ process_execute (const char *args_str)
   if (args == NULL)
     return TID_ERROR;
   
+  sema_init (&args->load_sema, 0);
+  args->parent_tid = thread_tid ();
+  
   length = strnlen (args_str, PGSIZE);
 
   args->argv = (char **) (((uint8_t *) args) + sizeof (*args) + length + 1);
@@ -146,11 +152,18 @@ process_execute (const char *args_str)
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
-    palloc_free_page (args); 
+    {
+      palloc_free_page (args);
+      return TID_ERROR;
+    }
   
-  enum intr_level old_level = intr_disable ();
-  create_process (tid, thread_current ()->tid);
-  intr_set_level (old_level);
+  sema_down (&args->load_sema);
+  if (!args->load_success)
+    {
+      palloc_free_page (args); 
+      printf ("Load failed!!\n");
+      return TID_ERROR;
+    }
 
   return tid;
 }
@@ -163,7 +176,6 @@ start_process (void *args_)
   struct arguments *args = args_;
   char *file_name = args->argv[0];
   struct intr_frame if_;
-  bool success;
   
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -171,14 +183,18 @@ start_process (void *args_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-  success = load (file_name, &if_.eip, &if_.esp);
+  args->load_success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  if (!success) 
+  if (!args->load_success) 
     {
-      palloc_free_page (args);
-      process_exit_with_status (-1);
+      printf ("Load failed, unblocking creator.\n");
+      sema_up (&args->load_sema);
+      printf ("Exiting because load failed.\n");
+      thread_exit ();
     }
+  
+  sema_up (&args->load_sema);
   
   /* Decrement before writing anything to avoid overwriting PHYS_BASE. */
   if_.esp--;
@@ -216,6 +232,10 @@ start_process (void *args_)
   
   if_.esp -= sizeof (int *);
   *((uint8_t **) if_.esp) = NULL;
+  
+  enum intr_level old_level = intr_disable ();
+  create_process (thread_tid (), args->parent_tid);
+  intr_set_level (old_level);
 
   palloc_free_page (args);
 

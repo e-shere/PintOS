@@ -130,7 +130,10 @@ static uint32_t
 sys_exec (const void *file, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   char *cmd_line = *(char **) file;
-  return tid_to_pid (process_execute (cmd_line));
+  printf ("About to run %s\n", cmd_line);
+  tid_t tid = process_execute (cmd_line);
+  printf ("TID: %d\n", tid);
+  return tid_to_pid (tid);
 }
 
 static uint32_t 

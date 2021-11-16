@@ -25,6 +25,8 @@ static bool is_valid_user_address_range (uint8_t *uaddr, uint32_t size);
 //static bool get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size);
 static int get_user_byte (const uint8_t *uaddr);
 
+static struct lock filesys_lock;
+
 static pid_t tid_to_pid (tid_t);
 
 static void do_exit (int status);
@@ -64,6 +66,7 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  lock_init (&filesys_lock);
   process_init ();
 }
 
@@ -153,7 +156,12 @@ sys_create (const void *filename_, const void *initial_size_, const void *arg3 U
     do_exit (-1);
   
   uint32_t initial_size = *(uint32_t *) initial_size_;
-  return filesys_create (filename, initial_size);
+
+  lock_acquire (&filesys_lock);
+  bool return_value = filesys_create (filename, initial_size);
+  lock_release (&filesys_lock);
+
+  return return_value;
 }
 
 static uint32_t 
@@ -163,7 +171,11 @@ sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNU
   if (!is_valid_user_string (filename, PGSIZE))
     do_exit (-1);
   
-  return filesys_remove (filename);
+  lock_acquire (&filesys_lock);
+  bool return_value = filesys_remove (filename);
+  lock_release (&filesys_lock);
+
+  return return_value;
 }
 
 static uint32_t 

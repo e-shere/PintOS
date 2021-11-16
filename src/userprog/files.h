@@ -18,7 +18,7 @@ void files_init_files (struct files *);
 int files_open (struct files *, char *);
 bool files_is_open (struct files *, int);
 struct file *files_get (struct files *, int);
-struct files get_current_files (void);
+struct files *get_current_files (void);
 void files_close (struct files *, int);
 
 #endif /* userprog/files.h */

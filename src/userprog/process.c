@@ -161,9 +161,9 @@ process_execute (const char *args_str)
   if (!args->load_success)
     {
       palloc_free_page (args); 
-      printf ("Load failed!!\n");
       return TID_ERROR;
     }
+  palloc_free_page (args);
 
   return tid;
 }
@@ -188,9 +188,7 @@ start_process (void *args_)
   /* If load failed, quit. */
   if (!args->load_success) 
     {
-      printf ("Load failed, unblocking creator.\n");
       sema_up (&args->load_sema);
-      printf ("Exiting because load failed.\n");
       thread_exit ();
     }
   
@@ -232,12 +230,11 @@ start_process (void *args_)
   
   if_.esp -= sizeof (int *);
   *((uint8_t **) if_.esp) = NULL;
+
   
   enum intr_level old_level = intr_disable ();
   create_process (thread_tid (), args->parent_tid);
   intr_set_level (old_level);
-
-  palloc_free_page (args);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in

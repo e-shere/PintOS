@@ -112,7 +112,8 @@ do_exit (const int status)
 static uint32_t
 sys_halt (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  shutdown_power_off();
+  shutdown_power_off ();
+  NOT_REACHED ();
   return 0;
 }
 
@@ -130,9 +131,7 @@ static uint32_t
 sys_exec (const void *file, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   char *cmd_line = *(char **) file;
-  printf ("About to run %s\n", cmd_line);
   tid_t tid = process_execute (cmd_line);
-  printf ("TID: %d\n", tid);
   return tid_to_pid (tid);
 }
 

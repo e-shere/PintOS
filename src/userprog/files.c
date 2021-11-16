@@ -53,7 +53,7 @@ files_open (struct files *f, char *file_name)
 bool
 files_is_open (struct files *f, int fd)
 {
-  return bitmap_test (f->fd_map, fd);
+  return (fd < MAX_FILE_COUNT + 2) && (bitmap_test (f->fd_map, fd));
 }
 
 struct file *
@@ -84,6 +84,7 @@ files_close (struct files *f, int fd)
   ASSERT (e != NULL);
   file_desc = hash_entry (e, struct file_descriptor, elem);
   file_close (file_desc->file);
+  bitmap_set (f->fd_map, fd, false);                            //unflip bit when closing the file
   free (file_desc);
 }
 

@@ -186,8 +186,8 @@ sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSE
   if (!is_valid_user_string (filename, PGSIZE))
     do_exit (-1);
 
-  struct files current_file = get_current_files ();
-  return files_open(&current_file, filename);
+  struct files current_files = get_current_files ();
+  return files_open(&current_files, filename);
 }
 
 static uint32_t 
@@ -242,9 +242,16 @@ sys_tell (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNU
 }
 
 static uint32_t 
-sys_close (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  return -1;
+  int fd = *(int*) fd_;
+
+  struct files current_files = get_current_files ();
+
+  if (files_is_open (&current_files, fd) && (fd > 1))
+    files_close (&current_files, fd);
+
+  return 0;
 }
 
 /* Checks whether the string given by ustr is entirely situated within valid

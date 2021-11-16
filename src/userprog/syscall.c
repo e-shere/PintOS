@@ -1,4 +1,5 @@
 #include "userprog/syscall.h"
+#include "userprog/process.h"
 #include "threads/vaddr.h"
 #include <stdio.h>
 #include <syscall-nr.h>
@@ -7,6 +8,7 @@
 #include "devices/input.h"
 #include "filesys/file.h"
 #include "devices/shutdown.h"
+#include "lib/user/syscall.h"
 
 typedef uint32_t (handler_func) (const void *, const void *, const void *);
 
@@ -22,7 +24,9 @@ static bool is_valid_user_address_range (uint8_t *uaddr, uint32_t size);
 //static bool get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size);
 static int get_user_byte (const uint8_t *uaddr);
 
-static void exit (int status);
+static pid_t tid_to_pid (tid_t);
+
+static void do_exit (int status);
 
 static handler_func sys_halt;
 static handler_func sys_exit;
@@ -59,6 +63,7 @@ void
 syscall_init (void) 
 {
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
+  process_init ();
 }
 
 static void
@@ -67,7 +72,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   uint32_t *param = (uint32_t *) f->esp;
   if (!is_valid_user_address_range ((uint8_t *) param, sizeof (uint32_t *)))
     {
-      exit (-1);
+      do_exit (-1);
       return;
     }
   int syscall = *(int *)param;
@@ -79,7 +84,7 @@ syscall_handler (struct intr_frame *f UNUSED)
   if (!is_valid_user_address_range ((uint8_t *) (param + 1), 
     h.num_args * (sizeof (uint32_t *))))
     {
-      exit (-1);
+      do_exit (-1);
       return;
     }
   for (int i = 1; i <= h.num_args; i++) {
@@ -88,18 +93,27 @@ syscall_handler (struct intr_frame *f UNUSED)
   f->eax = h.func(args[0], args[1], args[2]);
 }
 
-static void exit (const int status UNUSED)
+static pid_t
+tid_to_pid (tid_t tid)
 {
-  thread_exit ();
+  // TODO: store a mapping instead.
+  return (pid_t) tid;
+}
+
+static void
+do_exit (const int status)
+{
   // TODO: close all open files
   // TODO: send status to the kernel
+  process_exit_with_status (status);
 }
 
 
 static uint32_t
 sys_halt (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  shutdown_power_off();
+  shutdown_power_off ();
+  NOT_REACHED ();
   return 0;
 }
 
@@ -108,21 +122,26 @@ static uint32_t
 sys_exit (const void *status_, const void *arg2 UNUSED, const void *arg3 UNUSED )
 {
   int status = *(int *) status_;
-  exit (status);
+  do_exit (status);
   NOT_REACHED ();
   return 0;
 }
 
 static uint32_t 
-sys_exec (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_exec (const void *file, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  return -1;
+  char *cmd_line = *(char **) file;
+  if (!is_valid_user_string (cmd_line, PGSIZE))
+    return tid_to_pid (TID_ERROR);
+  tid_t tid = process_execute (cmd_line);
+  return tid_to_pid (tid);
 }
 
 static uint32_t 
-sys_wait (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_wait (const void *tid_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  return -1;
+  tid_t tid = *(tid_t *) tid_;
+  return process_wait (tid);
 }
 
 static uint32_t 
@@ -163,7 +182,7 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
   const void *buffer = *(const void **) buffer_;
   if (buffer == NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
     {
-      exit (-1);
+      do_exit (-1);
       NOT_REACHED ();
       //return 0;
     }

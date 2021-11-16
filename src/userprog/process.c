@@ -8,24 +8,108 @@
 #include "userprog/gdt.h"
 #include "userprog/pagedir.h"
 #include "userprog/tss.h"
+#include "lib/kernel/hash.h"
+#include "lib/kernel/list.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
 #include "threads/flags.h"
 #include "threads/init.h"
 #include "threads/interrupt.h"
+#include "threads/malloc.h"
 #include "threads/palloc.h"
+#include "threads/synch.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+static struct hash process_table;
+
+static hash_hash_func process_hash;
+static hash_less_func process_less;
+
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
+
+struct process
+  {
+    tid_t tid;
+    struct hash_elem process_elem;
+    struct semaphore wait_sema;
+    struct list_elem child_elem;
+    struct list dead_children;
+    tid_t parent_tid;
+    int exit_status;
+  };
+
+static struct process *get_process (tid_t); // Pointer to process with this id
+static bool is_running (tid_t); // True iff id is in table and has sema with value == 0
+static struct process *create_process (tid_t tid, tid_t parent_tid); // Creates a new struct process and adds it to the table
+static void delete_process (tid_t); // Removes mapping and frees process memory
 
 struct arguments
   {
     int argc;
     char **argv;
+    struct semaphore load_sema;
+    bool load_success;
+    tid_t parent_tid;
   };
+
+void
+process_init (void)
+{
+  hash_init (&process_table, process_hash, process_less, NULL);
+}
+
+static unsigned
+process_hash (const struct hash_elem *e, void *aux UNUSED)
+{
+  return hash_int (hash_entry (e, struct process, process_elem)->tid);
+}
+
+static bool
+process_less (const struct hash_elem *a, 
+              const struct hash_elem *b, void *aux UNUSED)
+{
+  return hash_entry (a, struct process, process_elem)->tid 
+         < hash_entry (b, struct process, process_elem)->tid;
+}
+
+static struct process *get_process (tid_t tid)
+{
+  struct process p;
+  struct hash_elem *e;
+  
+  p.tid = tid;
+  e = hash_find (&process_table, &p.process_elem);
+  return e != NULL ? hash_entry (e, struct process, process_elem) : NULL;
+}
+
+static bool is_running (tid_t tid)
+{
+  struct process *p = get_process (tid);
+  return p != NULL && p->wait_sema.value == 0; // TODO: Avoid accessing value directly
+}
+
+static struct process *create_process (tid_t tid, tid_t parent_tid)
+{
+  struct process *p = malloc (sizeof (struct process));
+  p->tid = tid;
+  p->parent_tid = parent_tid;
+  hash_insert (&process_table, &p->process_elem);
+  list_init (&p->dead_children);
+  sema_init (&p->wait_sema, 0);
+  return p;
+}
+
+static void
+delete_process (tid_t tid)
+{
+  struct process p;
+  p.tid = tid;
+  struct hash_elem *e = hash_delete (&process_table, &p.process_elem);
+  free (hash_entry (e, struct process, process_elem));
+}
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -43,9 +127,12 @@ process_execute (const char *args_str)
 
   /* Make a copy of FILE_NAME.
      Otherwise there's a race between the caller and load(). */
-  args = palloc_get_page (0);
+  args = palloc_get_page (PAL_ZERO);
   if (args == NULL)
     return TID_ERROR;
+  
+  sema_init (&args->load_sema, 0);
+  args->parent_tid = thread_tid ();
   
   length = strnlen (args_str, PGSIZE);
 
@@ -63,9 +150,21 @@ process_execute (const char *args_str)
     }
   
   /* Create a new thread to execute FILE_NAME. */
-  tid = thread_create (args_str, PRI_DEFAULT, start_process, args);
+  tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
-    palloc_free_page (args); 
+    {
+      palloc_free_page (args);
+      return TID_ERROR;
+    }
+  
+  sema_down (&args->load_sema);
+  if (!args->load_success)
+    {
+      palloc_free_page (args); 
+      return TID_ERROR;
+    }
+  palloc_free_page (args);
+
   return tid;
 }
 
@@ -77,7 +176,6 @@ start_process (void *args_)
   struct arguments *args = args_;
   char *file_name = args->argv[0];
   struct intr_frame if_;
-  bool success;
   
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
@@ -85,14 +183,16 @@ start_process (void *args_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-  success = load (file_name, &if_.eip, &if_.esp);
+  args->load_success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  if (!success) 
+  if (!args->load_success) 
     {
-      palloc_free_page (args);
+      sema_up (&args->load_sema);
       thread_exit ();
     }
+  
+  sema_up (&args->load_sema);
   
   /* Decrement before writing anything to avoid overwriting PHYS_BASE. */
   if_.esp--;
@@ -111,7 +211,7 @@ start_process (void *args_)
   
   /* Null pointer sentinel. */
   if_.esp -= sizeof (NULL);
-  *(uint8_t *)if_.esp = NULL;
+  *(uint8_t **) if_.esp = NULL;
   
   for (int i = args->argc - 1; i >= 0; i--)
     {
@@ -129,9 +229,12 @@ start_process (void *args_)
   *((int *) if_.esp) = args->argc;
   
   if_.esp -= sizeof (int *);
-  *((uint8_t *) if_.esp) = NULL;
+  *((uint8_t **) if_.esp) = NULL;
 
-  palloc_free_page (args);
+  
+  enum intr_level old_level = intr_disable ();
+  create_process (thread_tid (), args->parent_tid);
+  intr_set_level (old_level);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -155,11 +258,60 @@ start_process (void *args_)
 int
 process_wait (tid_t child_tid UNUSED)
 {
-  struct semaphore sema = {0};
-  sema_init (&sema, 0);
-  sema_down (&sema);
+  enum intr_level old_level = intr_disable ();
+
+  struct process *p = get_process (child_tid);
+  if (p == NULL) 
+    // This process doesn't exist or has already been waited on.
+    return -1;
+  if (p->parent_tid != thread_tid ())
+    // This is not this thread's child
+    return -1;
+  sema_down (&p->wait_sema);
+  int exit_status = p->exit_status;
+  if (thread_tid () != thread_get_main_tid ())
+    list_remove (&p->child_elem);
+  delete_process (child_tid);
+  
+  intr_set_level (old_level);
+
+  return exit_status;
+}
+
+void
+process_exit_with_status (int exit_status)
+{
+  printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
+
+  enum intr_level old_level = intr_disable ();
+
+  tid_t tid = thread_current ()->tid;
+  struct process *p = get_process (tid);
+
+  struct list_elem *e;
+  for (e = list_begin (&p->dead_children); 
+       e != list_end (&p->dead_children); 
+       e = list_next (e))
+    {
+      delete_process (list_entry (e, struct process, child_elem)->tid);
+    }
+  
+  sema_up (&p->wait_sema);
+
+  if (is_running (p->parent_tid))
+    {
+      p->exit_status = exit_status;
+      struct process *parent = get_process (p->parent_tid);
+      list_push_back (&parent->dead_children, &p->child_elem);
+    }
+  else if (p->parent_tid != thread_get_main_tid ())
+    {
+      delete_process (tid);
+    }
+
+  intr_set_level (old_level);
+  thread_exit ();
   NOT_REACHED ();
-  return -1;
 }
 
 /* Free the current process's resources. */
@@ -202,7 +354,7 @@ process_activate (void)
      interrupts. */
   tss_update ();
 }
-
+
 /* We load ELF binaries.  The following definitions are taken
    from the ELF specification, [ELF1], more-or-less verbatim.  */
 
@@ -386,7 +538,7 @@ load (const char *file_name, void (**eip) (void), void **esp)
   file_close (file);
   return success;
 }
-
+
 /* load() helpers. */
 
 static bool install_page (void *upage, void *kpage, bool writable);

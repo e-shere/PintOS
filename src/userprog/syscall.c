@@ -153,13 +153,17 @@ sys_create (const void *filename_, const void *initial_size_, const void *arg3 U
     do_exit (-1);
   
   uint32_t initial_size = *(uint32_t *) initial_size_;
-  return filesys_create(filename, initial_size);
+  return filesys_create (filename, initial_size);
 }
 
 static uint32_t 
-sys_remove (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
-  return -1;
+  char *filename = *(char **) filename_;
+  if (!is_valid_user_string (filename, PGSIZE))
+    do_exit (-1);
+  
+  return filesys_remove (filename);
 }
 
 static uint32_t 

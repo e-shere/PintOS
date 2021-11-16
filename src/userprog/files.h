@@ -3,7 +3,6 @@
 
 #include "lib/kernel/bitmap.h"
 #include "lib/kernel/hash.h"
-#include "userprog/process.h"
 #include "filesys/file.h"
 
 #define MAX_FILE_COUNT 16

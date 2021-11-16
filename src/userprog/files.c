@@ -2,6 +2,7 @@
 #include <stdlib.h>
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
+#include "userprog/process.h"
 
 static hash_hash_func fd_hash;
 static hash_less_func fd_less;
@@ -15,6 +16,13 @@ struct file_descriptor
 
     struct file *file;
   };
+
+
+struct files
+get_current_files ()
+{
+  return get_process (thread_current ()->tid)->files;
+}
 
 void 
 files_init_files (struct files *f)

@@ -32,21 +32,6 @@ static hash_less_func process_less;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-struct process
-  {
-    tid_t tid;
-    struct hash_elem process_elem;
-
-    struct semaphore wait_sema;
-    struct list_elem child_elem;
-    struct list dead_children;
-    tid_t parent_tid;
-    int exit_status;
-    
-    struct files files;
-  };
-
-static struct process *get_process (tid_t); // Pointer to process with this id
 static bool is_running (tid_t); // True iff id is in table and has sema with value == 0
 static struct process *create_process (tid_t tid, tid_t parent_tid); // Creates a new struct process and adds it to the table
 static void delete_process (tid_t); // Removes mapping and frees process memory

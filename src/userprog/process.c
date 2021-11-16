@@ -112,8 +112,10 @@ static void
 delete_process (tid_t tid)
 {
   struct process p;
+  struct hash_elem *e ;
+
   p.tid = tid;
-  struct hash_elem *e = hash_delete (&process_table, &p.process_elem);
+  e = hash_delete (&process_table, &p.process_elem);
   free (hash_entry (e, struct process, process_elem));
 }
 

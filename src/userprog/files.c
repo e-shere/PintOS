@@ -1,4 +1,7 @@
 #include "userprog/files.h"
+#include <stdlib.h>
+#include "threads/malloc.h"
+#include "filesys/filesys.h"
 
 static hash_hash_func fd_hash;
 static hash_less_func fd_less;
@@ -31,7 +34,45 @@ files_open (struct files *f, char *file_name)
     .fd   = allocate_fd (f),
     .file = filesys_open (file_name)
   };
-  hash_insert (f->fd_map, file_desc);
+  hash_insert (&f->fd_table, &file_desc->elem);
+  return file_desc->fd;
+}
+
+bool
+files_is_open (struct files *f, int fd)
+{
+  return bitmap_test (f->fd_map, fd);
+}
+
+struct file *
+files_get (struct files *f, int fd)
+{
+  ASSERT (files_is_open (f, fd));
+
+  struct file_descriptor file_desc;
+  struct hash_elem *e;
+  
+  file_desc.fd = fd;
+  e = hash_find (&f->fd_table, &file_desc.elem);
+  ASSERT (e != NULL);
+  return hash_entry (e, struct file_descriptor, elem)->file;
+}
+
+void
+files_close (struct files *f, int fd)
+{
+  ASSERT (files_is_open (f, fd));
+  
+  struct file_descriptor *file_desc;
+  struct file_descriptor fake_file_desc;
+  struct hash_elem *e;
+  
+  fake_file_desc.fd = fd;
+  e = hash_delete (&f->fd_table, &fake_file_desc.elem);
+  ASSERT (e != NULL);
+  file_desc = hash_entry (e, struct file_descriptor, elem);
+  file_close (file_desc->file);
+  free (file_desc);
 }
 
 static unsigned

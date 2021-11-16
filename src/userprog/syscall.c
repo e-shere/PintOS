@@ -131,6 +131,8 @@ static uint32_t
 sys_exec (const void *file, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
   char *cmd_line = *(char **) file;
+  if (!is_valid_user_string (cmd_line, PGSIZE))
+    return tid_to_pid (TID_ERROR);
   tid_t tid = process_execute (cmd_line);
   return tid_to_pid (tid);
 }

@@ -82,7 +82,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
   int syscall = *(int *)param;
   if (syscall < 0 || syscall >= NUM_SYSCALL)
-    thread_exit (); // should we do something different??
+    do_exit(-1);
 
   struct handler h = syscall_map[syscall];
   void *args[3] = { 0 };
@@ -196,7 +196,7 @@ sys_filesize (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   uint32_t fd = *(uint32_t *) fd_;
   struct files *current_files = get_current_files ();
   
-  if (!files_is_open (current_files, fd))
+  if (fd <= 1 || !files_is_open (current_files, fd))
     return -1;
   return file_length (files_get (current_files, fd));
 }
@@ -263,16 +263,30 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
 }
 
 static uint32_t 
-sys_seek (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_seek (const void *fd_, const void *position_, const void *arg3 UNUSED)
 {
-  return -1;
+  uint32_t fd = *(uint32_t *) fd_;
+  uint32_t position = *(uint32_t *) position_;
+  struct files *current_files = get_current_files ();
+  
+  if (fd > 1 && files_is_open (current_files, fd))
+    file_seek (files_get (current_files, fd), position);
+  
+  return 0;
 }
 
 static uint32_t 
-sys_tell (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_tell (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
+  uint32_t fd = *(uint32_t *) fd_;
+  struct files *current_files = get_current_files ();
+  
+  if (fd > 1 && files_is_open (current_files, fd))
+    return file_tell (files_get (current_files, fd));
+  
   return -1;
 }
+
 
 static uint32_t 
 sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)

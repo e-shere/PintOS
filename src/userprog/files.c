@@ -7,6 +7,8 @@
 static hash_hash_func fd_hash;
 static hash_less_func fd_less;
 
+static hash_action_func fd_destructor;
+
 static int allocate_fd (struct files *);
 
 struct file_descriptor
@@ -30,7 +32,7 @@ files_init_files (struct files *f)
   f->fd_map = bitmap_create (MAX_FILE_COUNT + 3);
   bitmap_set (f->fd_map, FD_STDIN, true);
   bitmap_set (f->fd_map, FD_STDOUT, true);
-  hash_init (&f->fd_table, fd_hash, fd_less, NULL);
+  hash_init (&f->fd_table, fd_hash, fd_less, f);
 }
 
 int
@@ -89,6 +91,14 @@ files_close (struct files *f, int fd)
   free (file_desc);
 }
 
+void
+files_destroy_files (struct files *f)
+{
+  hash_destroy (&f->fd_table, fd_destructor);
+  bitmap_destroy (f->fd_map);
+  free (f);
+}
+
 static unsigned
 fd_hash (const struct hash_elem *e, void *aux UNUSED)
 {
@@ -103,6 +113,12 @@ fd_less (const struct hash_elem *a,
 {
   return hash_entry (a, struct file_descriptor, elem)->fd
          < hash_entry (b, struct file_descriptor, elem)->fd;
+}
+
+static void
+fd_destructor (struct hash_elem *e, void *f)
+{
+  files_close ((struct files *) f, hash_entry (e, struct file_descriptor, elem)->fd);
 }
 
 static int

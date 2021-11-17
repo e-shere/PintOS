@@ -179,6 +179,12 @@ start_process (void *args_)
   if_.eflags = FLAG_IF | FLAG_MBS;
 
   executable = filesys_open (file_name);
+
+  if (executable == NULL) 
+    {
+      sema_up (&args->load_sema);
+      thread_exit ();
+    }
   
   file_deny_write (executable);
 
@@ -296,6 +302,7 @@ process_exit_with_status (int exit_status)
     }
   
   file_close (p->executable);
+  files_destroy_files (&p->files);
   
   sema_up (&p->wait_sema);
 

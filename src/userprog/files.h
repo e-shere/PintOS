@@ -22,5 +22,6 @@ bool files_is_open (struct files *, int);
 struct file *files_get (struct files *, int);
 struct files *get_current_files (void);
 void files_close (struct files *, int);
+void files_destroy_files (struct files *);
 
 #endif /* userprog/files.h */

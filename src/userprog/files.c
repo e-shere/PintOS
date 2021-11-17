@@ -6,6 +6,7 @@
 
 static hash_hash_func fd_hash;
 static hash_less_func fd_less;
+static hash_action_func fd_destructor;
 
 static int allocate_fd (struct files *);
 
@@ -21,7 +22,10 @@ struct file_descriptor
 struct files *
 get_current_files (void)
 {
-  return &get_process (thread_current ()->tid)->files;
+  process_table_lock ();
+  struct files *f = &get_process (thread_current ()->tid)->files;
+  process_table_unlock ();
+  return f;
 }
 
 void 
@@ -30,7 +34,7 @@ files_init_files (struct files *f)
   f->fd_map = bitmap_create (MAX_FILE_COUNT + 3);
   bitmap_set (f->fd_map, FD_STDIN, true);
   bitmap_set (f->fd_map, FD_STDOUT, true);
-  hash_init (&f->fd_table, fd_hash, fd_less, NULL);
+  hash_init (&f->fd_table, fd_hash, fd_less, f);
 }
 
 int
@@ -81,17 +85,19 @@ files_close (struct files *f, int fd)
 {
   ASSERT (files_is_open (f, fd));
   
-  struct file_descriptor *file_desc;
   struct file_descriptor fake_file_desc;
   struct hash_elem *e;
   
   fake_file_desc.fd = fd;
   e = hash_delete (&f->fd_table, &fake_file_desc.elem);
-  ASSERT (e != NULL);
-  file_desc = hash_entry (e, struct file_descriptor, elem);
-  file_close (file_desc->file);
-  bitmap_set (f->fd_map, fd, false);                            //unflip bit when closing the file
-  free (file_desc);
+  fd_destructor (e, f);
+}
+
+void
+files_destroy_files (struct files *f)
+{
+  hash_destroy (&f->fd_table, fd_destructor);
+  bitmap_destroy (f->fd_map);
 }
 
 static unsigned
@@ -108,6 +114,15 @@ fd_less (const struct hash_elem *a,
 {
   return hash_entry (a, struct file_descriptor, elem)->fd
          < hash_entry (b, struct file_descriptor, elem)->fd;
+}
+
+static void
+fd_destructor (struct hash_elem *e, void *f_)
+{
+  struct file_descriptor *file_desc = hash_entry (e, struct file_descriptor, elem);
+  file_close (file_desc->file);
+  bitmap_set (((struct files *) f_)->fd_map, file_desc->fd, false);
+  free (file_desc);
 }
 
 static int

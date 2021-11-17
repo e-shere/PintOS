@@ -201,10 +201,31 @@ sys_filesize (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   return file_length (files_get (current_files, fd));
 }
 
+static void read_keyboard (const void *buffer, unsigned size) {
+  uint8_t *buff = (uint8_t *) buffer;
+
+  for (unsigned i = 0; i < size; i++) {
+    *(buff + i) = input_getc();
+  }
+}
+
 static uint32_t 
-sys_read (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_read (const void *fd_, const void *buffer, const void *size_)
 {
-  return -1;
+  int fd = *(int *) fd_;
+  unsigned size = *(unsigned *) size_;
+  int bytes_written;
+
+  if (fd == FD_STDOUT) {
+    bytes_written = -1;
+  } else if (fd == FD_STDIN) {
+    read_keyboard(buffer, size);
+    bytes_written = size;
+  } else {
+    //read from the file
+  }
+
+  return bytes_written;
 }
 
 static uint32_t 

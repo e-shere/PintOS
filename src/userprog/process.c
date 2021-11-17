@@ -139,8 +139,9 @@ process_execute (const char *args_str)
 {
   /* The address where the first argument begins */
   struct arguments *args;
+  size_t space_left;
   /* The total length of args_str. */
-  int length;
+  size_t length;
   char *save_ptr;
   tid_t tid;
 
@@ -153,19 +154,48 @@ process_execute (const char *args_str)
   sema_init (&args->load_sema, 0);
   args->parent_tid = thread_tid ();
   
-  length = strnlen (args_str, PGSIZE);
+  size_t reserved_space_on_thread_page = sizeof (struct thread);
+  reserved_space_on_thread_page += sizeof (void *); // Return address.
+  reserved_space_on_thread_page += sizeof (int); // argc
+  reserved_space_on_thread_page += sizeof (char **); // argv
+  reserved_space_on_thread_page += sizeof (char *); // argv[0]
+  reserved_space_on_thread_page += sizeof (uint8_t) * 4; // Word alignment.
+  
+  size_t reserved_space_on_args_page = sizeof (*args);
+  reserved_space_on_args_page += sizeof (char *); // argv[0]
+  
+  ASSERT (reserved_space_on_thread_page >= reserved_space_on_args_page);
+  
+  space_left = PGSIZE - reserved_space_on_thread_page;
+  
+  char *args_str_ptr = (char *) (((uint8_t *) args) + sizeof (*args));
+  length = strlcpy (args_str_ptr, args_str, space_left);
+ 
+  space_left -= length;
+  if (args_str[length] != '\0')
+    {
+      // args_str was longer than space_left, we could not fit it all.
+      free (args);
+      return TID_ERROR;
+    }
 
   args->argv = (char **) (((uint8_t *) args) + sizeof (*args) + length + 1);
-  args->argv[0] = (char *) (((uint8_t *) args) + sizeof (*args));
+  args->argv[0] = args_str_ptr;
 
-  strlcpy (args->argv[0], args_str, length+1);
   
   strtok_r (args->argv[0], " ", &save_ptr);
   while (args->argv[args->argc] != NULL)
     {
+      if (space_left < sizeof (char *))
+        {
+          // Not enough space for another argument pointer.
+          free (args);
+          return TID_ERROR;
+        }
       args->argc++;
       char *arg = strtok_r (NULL, " ", &save_ptr);
       args->argv[args->argc] = arg;
+      space_left -= sizeof (arg);
     }
   
   /* Create a new thread to execute FILE_NAME. */
@@ -341,6 +371,10 @@ process_exit_with_status (int exit_status)
   p->is_running = false;
   
   sema_up (&p->wait_sema);
+  
+  /* Even though exit_status hasn't been set yet, getting preempted here is
+     fine because we still hold process_lock, so the thread waiting on us
+     cannot attempt to read the status yet. */
 
   if (is_running (p->parent_tid))
     {

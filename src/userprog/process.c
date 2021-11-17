@@ -146,7 +146,6 @@ static void
 delete_process (tid_t tid)
 {
   ASSERT (process_table_locked ());
-  ASSERT (!is_running (tid));
   struct process p;
   struct hash_elem *e ;
 
@@ -374,11 +373,10 @@ process_wait (tid_t child_tid UNUSED)
 void
 process_exit_with_status (int exit_status)
 {
+  process_table_lock ();
   tid_t tid = thread_tid ();
   ASSERT (is_running (tid));
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
-
-  process_table_lock ();
 
   struct process *p = get_process (tid);
 

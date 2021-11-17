@@ -224,6 +224,16 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
   if (fd == 1) {
     putbuf(buffer, size);
     bytes_written = size;
+  } else {
+    struct files *current_files = get_current_files ();
+
+    struct file *open_file = files_get (current_files, fd);
+
+    if (open_file == NULL) {
+      do_exit (EXIT_FAILURE);
+    }
+
+    bytes_written = (unsigned) file_write (open_file, buffer, size);
   }
 
   return bytes_written;

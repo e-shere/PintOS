@@ -18,7 +18,7 @@ struct file_descriptor
   };
 
 
-struct files*
+struct files *
 get_current_files (void)
 {
   return &get_process (thread_current ()->tid)->files;

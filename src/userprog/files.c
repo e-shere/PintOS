@@ -28,8 +28,8 @@ void
 files_init_files (struct files *f)
 {
   f->fd_map = bitmap_create (MAX_FILE_COUNT + 3);
-  bitmap_set (f->fd_map, 0, true);
-  bitmap_set (f->fd_map, 1, true);
+  bitmap_set (f->fd_map, FD_STDIN, true);
+  bitmap_set (f->fd_map, FD_STDOUT, true);
   hash_init (&f->fd_table, fd_hash, fd_less, NULL);
 }
 
@@ -53,7 +53,8 @@ files_open (struct files *f, char *file_name)
 bool
 files_is_open (struct files *f, int fd)
 {
-  return (fd < MAX_FILE_COUNT + 2) && (bitmap_test (f->fd_map, fd));
+  return (fd >= 0) && (fd < MAX_FILE_COUNT + 2) 
+    && (bitmap_test (f->fd_map, fd));
 }
 
 struct file *

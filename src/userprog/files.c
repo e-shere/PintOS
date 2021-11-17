@@ -40,7 +40,9 @@ files_init_files (struct files *f)
 int
 files_open (struct files *f, char *file_name)
 {
+  lock_acquire(f->file_lock);
   struct file *opened_file = filesys_open (file_name);
+  lock_release(f->file_lock);
   if (opened_file == NULL)
     return FD_FAILURE;
 
@@ -75,7 +77,13 @@ files_get (struct files *f, int fd)
   struct hash_elem *e;
   
   file_desc.fd = fd;
+
+  process_table_lock ();
+  lock_acquire(&get_process(thread_current ()->tid)->process_lock);
   e = hash_find (&f->fd_table, &file_desc.elem);
+  lock_release(&get_process(thread_current ()->tid)->process_lock);
+  process_table_unlock ();
+
   ASSERT (e != NULL);
   return hash_entry (e, struct file_descriptor, elem)->file;
 }

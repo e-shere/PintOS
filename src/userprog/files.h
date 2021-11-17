@@ -4,6 +4,7 @@
 #include "lib/kernel/bitmap.h"
 #include "lib/kernel/hash.h"
 #include "filesys/file.h"
+#include "threads/synch.h"
 
 #define MAX_FILE_COUNT 16
 #define FD_FAILURE -1
@@ -14,6 +15,7 @@ struct files
   {
     struct bitmap *fd_map;
     struct hash fd_table;
+    struct lock file_lock;
   };
 
 void files_init_files (struct files *);

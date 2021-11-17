@@ -22,6 +22,7 @@ struct process
     tid_t parent_tid;
     int exit_status;
     bool is_running;
+    struct lock process_lock;
     
     struct file *executable;
     struct files files;

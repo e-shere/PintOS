@@ -12,6 +12,11 @@
 #include "devices/shutdown.h"
 #include "lib/user/syscall.h"
 
+#define FILESYS_ACCESS(cmd) \
+  begin_filesystem_access (); \
+  cmd \
+  end_filesystem_access ();
+
 typedef uint32_t (handler_func) (const void *, const void *, const void *);
 
 struct handler {
@@ -25,6 +30,9 @@ static bool is_valid_user_address (const uint8_t *uaddr);
 static bool is_valid_user_address_range (uint8_t *uaddr, uint32_t size);
 //static bool get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size);
 static int get_user_byte (const uint8_t *uaddr);
+
+static void begin_filesystem_access (void);
+static void end_filesystem_access (void);
 
 static struct lock filesys_lock;
 
@@ -69,6 +77,16 @@ syscall_init (void)
   intr_register_int (0x30, 3, INTR_ON, syscall_handler, "syscall");
   lock_init (&filesys_lock);
   process_init ();
+}
+
+static void begin_filesystem_access (void)
+{
+  lock_acquire (&filesys_lock);
+}
+
+static void end_filesystem_access (void)
+{
+  lock_release (&filesys_lock);
 }
 
 static void
@@ -158,9 +176,7 @@ sys_create (const void *filename_, const void *initial_size_, const void *arg3 U
   
   uint32_t initial_size = *(uint32_t *) initial_size_;
 
-  lock_acquire (&filesys_lock);
-  bool return_value = filesys_create (filename, initial_size);
-  lock_release (&filesys_lock);
+  FILESYS_ACCESS (bool return_value = filesys_create (filename, initial_size);)
 
   return return_value;
 }
@@ -172,10 +188,7 @@ sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNU
   if (!is_valid_user_string (filename, PGSIZE))
     do_exit (-1);
   
-  lock_acquire (&filesys_lock);
-  bool return_value = filesys_remove (filename);
-  lock_release (&filesys_lock);
-
+  FILESYS_ACCESS (bool return_value = filesys_remove (filename);)
   return return_value;
 }
 
@@ -187,7 +200,9 @@ sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSE
     do_exit (-1);
 
   struct files *current_files = get_current_files ();
-  return files_open(current_files, filename);
+
+  FILESYS_ACCESS (int fd = files_open(current_files, filename);)
+  return fd;
 }
 
 static uint32_t 
@@ -198,7 +213,9 @@ sys_filesize (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   
   if (fd <= 1 || !files_is_open (current_files, fd))
     return -1;
-  return file_length (files_get (current_files, fd));
+   
+   FILESYS_ACCESS (int len = file_length (files_get (current_files, fd));)
+   return len;
 }
 
 static void read_keyboard (const void *buffer, unsigned size) {
@@ -225,7 +242,8 @@ static int read_from_file (int fd, const void *buffer, unsigned size) {
 
   struct file *open_file = files_get (current_files, fd);
 
-  return file_read (open_file, buff, size);
+  FILESYS_ACCESS (int len = file_read (open_file, buff, size);)
+  return len;
 }
 
 static uint32_t 
@@ -276,7 +294,7 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
       do_exit (EXIT_FAILURE);
     }
 
-    bytes_written = (unsigned) file_write (open_file, buffer, size);
+    FILESYS_ACCESS (bytes_written = (unsigned) file_write (open_file, buffer, size);)
   }
 
   return bytes_written;
@@ -290,7 +308,9 @@ sys_seek (const void *fd_, const void *position_, const void *arg3 UNUSED)
   struct files *current_files = get_current_files ();
   
   if (fd > 1 && files_is_open (current_files, fd))
-    file_seek (files_get (current_files, fd), position);
+    {
+      FILESYS_ACCESS (file_seek (files_get (current_files, fd), position);)
+    }
   
   return 0;
 }
@@ -302,7 +322,10 @@ sys_tell (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   struct files *current_files = get_current_files ();
   
   if (fd > 1 && files_is_open (current_files, fd))
-    return file_tell (files_get (current_files, fd));
+    {
+      FILESYS_ACCESS (int ret_val = file_tell (files_get (current_files, fd));)
+      return ret_val;
+    }
   
   return -1;
 }
@@ -316,7 +339,9 @@ sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   struct files *current_files = get_current_files ();
 
   if (files_is_open (current_files, fd) && (fd > 1))
-    files_close (current_files, fd);
+    {
+      FILESYS_ACCESS (files_close (current_files, fd);)
+    }
 
   return 0;
 }

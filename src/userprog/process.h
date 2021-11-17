@@ -21,10 +21,15 @@ struct process
     struct list dead_children;
     tid_t parent_tid;
     int exit_status;
+    bool is_running;
     
     struct file *executable;
     struct files files;
   };
+
+void process_table_lock (void);
+bool process_table_locked (void);
+void process_table_unlock (void);
 
 struct process *get_process (tid_t); // Pointer to process with this id
 

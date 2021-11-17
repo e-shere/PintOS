@@ -25,6 +25,7 @@
 #include "threads/vaddr.h"
 
 static struct hash process_table;
+static struct lock process_lock;
 
 static hash_hash_func process_hash;
 static hash_less_func process_less;
@@ -49,6 +50,7 @@ void
 process_init (void)
 {
   hash_init (&process_table, process_hash, process_less, NULL);
+  lock_init (&process_lock);
 }
 
 static unsigned
@@ -65,8 +67,27 @@ process_less (const struct hash_elem *a,
          < hash_entry (b, struct process, process_elem)->tid;
 }
 
+void
+process_table_lock (void)
+{
+  lock_acquire (&process_lock);
+}
+
+bool
+process_table_locked (void)
+{
+  return lock_held_by_current_thread (&process_lock);
+}
+
+void
+process_table_unlock (void)
+{
+  lock_release (&process_lock);
+}
+
 struct process *get_process (tid_t tid)
 {
+  ASSERT (process_table_locked ());
   struct process p;
   struct hash_elem *e;
   
@@ -77,15 +98,18 @@ struct process *get_process (tid_t tid)
 
 static bool is_running (tid_t tid)
 {
+  ASSERT (process_table_locked ());
   struct process *p = get_process (tid);
-  return p != NULL && p->wait_sema.value == 0; // TODO: Avoid accessing value directly
+  return p != NULL && p->is_running;
 }
 
 static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable)
 {
+  ASSERT (process_table_locked ());
   struct process *p = malloc (sizeof (struct process));
   p->tid = tid;
   p->parent_tid = parent_tid;
+  p->is_running = true;
   p->executable = executable;
   hash_insert (&process_table, &p->process_elem);
   list_init (&p->dead_children);
@@ -97,6 +121,7 @@ static struct process *create_process (tid_t tid, tid_t parent_tid, struct file 
 static void
 delete_process (tid_t tid)
 {
+  ASSERT (process_table_locked ());
   struct process p;
   struct hash_elem *e ;
 
@@ -237,9 +262,9 @@ start_process (void *args_)
   *((uint8_t **) if_.esp) = NULL;
 
   
-  enum intr_level old_level = intr_disable ();
+  process_table_lock ();
   create_process (thread_tid (), args->parent_tid, executable);
-  intr_set_level (old_level);
+  process_table_unlock ();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -263,22 +288,32 @@ start_process (void *args_)
 int
 process_wait (tid_t child_tid UNUSED)
 {
-  enum intr_level old_level = intr_disable ();
+  process_table_lock ();
 
   struct process *p = get_process (child_tid);
   if (p == NULL) 
-    // This process doesn't exist or has already been waited on.
-    return -1;
+    {
+      // This process doesn't exist or has already been waited on.
+      process_table_unlock ();
+      return -1;
+    }
   if (p->parent_tid != thread_tid ())
-    // This is not this thread's child
-    return -1;
+    {
+      // This is not this thread's child
+      process_table_unlock ();
+      return -1;
+    }
+  process_table_unlock ();
+  
   sema_down (&p->wait_sema);
+  
+  process_table_lock ();
   int exit_status = p->exit_status;
   if (thread_tid () != thread_get_main_tid ())
     list_remove (&p->child_elem);
   delete_process (child_tid);
   
-  intr_set_level (old_level);
+  process_table_unlock ();
 
   return exit_status;
 }
@@ -288,7 +323,7 @@ process_exit_with_status (int exit_status)
 {
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
 
-  enum intr_level old_level = intr_disable ();
+  process_table_lock ();
 
   tid_t tid = thread_current ()->tid;
   struct process *p = get_process (tid);
@@ -303,6 +338,7 @@ process_exit_with_status (int exit_status)
   
   file_close (p->executable);
   files_destroy_files (&p->files);
+  p->is_running = false;
   
   sema_up (&p->wait_sema);
 
@@ -317,7 +353,7 @@ process_exit_with_status (int exit_status)
       delete_process (tid);
     }
 
-  intr_set_level (old_level);
+  process_table_unlock ();
   thread_exit ();
   NOT_REACHED ();
 }

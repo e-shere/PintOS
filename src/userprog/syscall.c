@@ -211,14 +211,10 @@ static void read_keyboard (const void *buffer, unsigned size) {
 
 static int read_from_file (int fd, const void *buffer, unsigned size) {
 
-  uint8_t *buff = *(uint8_t **) buffer;
+  uint8_t *buff = (uint8_t *) buffer;
 
   if (!is_valid_user_address_range (buff, size)) {
     do_exit(-1);
-  }
-
-  if (fd < 0) {
-    return 0;
   }
 
   struct files *current_files = get_current_files ();
@@ -229,18 +225,7 @@ static int read_from_file (int fd, const void *buffer, unsigned size) {
 
   struct file *open_file = files_get (current_files, fd);
 
-  // struct hash_elem *e = hash_find (current_files->fd_table, )
-
-  // for (unsigned i = 0; i < size; i++) {
-  //   if (!is_valid_user_address (buff + i)) {
-  //     return 0;
-  //   }
-  // }
-
-  printf("does this print 2");
-
   return file_read (open_file, buff, size);
-
 }
 
 static uint32_t 

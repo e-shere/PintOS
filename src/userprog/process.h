@@ -22,6 +22,7 @@ struct process
     tid_t parent_tid;
     int exit_status;
     
+    struct file *executable;
     struct files files;
   };
 

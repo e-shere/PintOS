@@ -33,7 +33,7 @@ static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
 static bool is_running (tid_t); // True iff id is in table and has sema with value == 0
-static struct process *create_process (tid_t tid, tid_t parent_tid); // Creates a new struct process and adds it to the table
+static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable); // Creates a new struct process and adds it to the table
 static void delete_process (tid_t); // Removes mapping and frees process memory
 
 struct arguments
@@ -81,11 +81,12 @@ static bool is_running (tid_t tid)
   return p != NULL && p->wait_sema.value == 0; // TODO: Avoid accessing value directly
 }
 
-static struct process *create_process (tid_t tid, tid_t parent_tid)
+static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable)
 {
   struct process *p = malloc (sizeof (struct process));
   p->tid = tid;
   p->parent_tid = parent_tid;
+  p->executable = executable;
   hash_insert (&process_table, &p->process_elem);
   list_init (&p->dead_children);
   sema_init (&p->wait_sema, 0);
@@ -169,12 +170,17 @@ start_process (void *args_)
   struct arguments *args = args_;
   char *file_name = args->argv[0];
   struct intr_frame if_;
+  struct file *executable;
   
   /* Initialize interrupt frame and load executable. */
   memset (&if_, 0, sizeof if_);
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+  executable = filesys_open (file_name);
+  
+  file_deny_write (executable);
 
   args->load_success = load (file_name, &if_.eip, &if_.esp);
 
@@ -226,7 +232,7 @@ start_process (void *args_)
 
   
   enum intr_level old_level = intr_disable ();
-  create_process (thread_tid (), args->parent_tid);
+  create_process (thread_tid (), args->parent_tid, executable);
   intr_set_level (old_level);
 
   /* Start the user process by simulating a return from an
@@ -288,6 +294,8 @@ process_exit_with_status (int exit_status)
     {
       delete_process (list_entry (e, struct process, child_elem)->tid);
     }
+  
+  file_close (p->executable);
   
   sema_up (&p->wait_sema);
 

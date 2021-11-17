@@ -24,6 +24,10 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define PUT_ARG_ON_STACK(esp, type, value)  \
+  esp -= sizeof (type);		            \
+  *(type) esp = value
+
 static struct hash process_table;
 static struct lock process_lock;
 
@@ -107,6 +111,9 @@ static struct process *create_process (tid_t tid, tid_t parent_tid, struct file 
 {
   ASSERT (process_table_locked ());
   struct process *p = malloc (sizeof (struct process));
+  if (p == NULL)
+    return NULL;
+
   p->tid = tid;
   p->parent_tid = parent_tid;
   p->is_running = true;
@@ -139,8 +146,9 @@ process_execute (const char *args_str)
 {
   /* The address where the first argument begins */
   struct arguments *args;
+  size_t space_left;
   /* The total length of args_str. */
-  int length;
+  size_t length;
   char *save_ptr;
   tid_t tid;
 
@@ -153,19 +161,48 @@ process_execute (const char *args_str)
   sema_init (&args->load_sema, 0);
   args->parent_tid = thread_tid ();
   
-  length = strnlen (args_str, PGSIZE);
+  size_t reserved_space_on_thread_page = sizeof (struct thread);
+  reserved_space_on_thread_page += sizeof (void *); // Return address.
+  reserved_space_on_thread_page += sizeof (int); // argc
+  reserved_space_on_thread_page += sizeof (char **); // argv
+  reserved_space_on_thread_page += sizeof (char *); // argv[0]
+  reserved_space_on_thread_page += sizeof (uint8_t) * 4; // Word alignment.
+  
+  size_t reserved_space_on_args_page = sizeof (*args);
+  reserved_space_on_args_page += sizeof (char *); // argv[0]
+  
+  ASSERT (reserved_space_on_thread_page >= reserved_space_on_args_page);
+  
+  space_left = PGSIZE - reserved_space_on_thread_page;
+  
+  char *args_str_ptr = (char *) (((uint8_t *) args) + sizeof (*args));
+  length = strlcpy (args_str_ptr, args_str, space_left);
+ 
+  space_left -= length;
+  if (args_str[length] != '\0')
+    {
+      // args_str was longer than space_left, we could not fit it all.
+      free (args);
+      return TID_ERROR;
+    }
 
   args->argv = (char **) (((uint8_t *) args) + sizeof (*args) + length + 1);
-  args->argv[0] = (char *) (((uint8_t *) args) + sizeof (*args));
+  args->argv[0] = args_str_ptr;
 
-  strlcpy (args->argv[0], args_str, length+1);
   
   strtok_r (args->argv[0], " ", &save_ptr);
   while (args->argv[args->argc] != NULL)
     {
+      if (space_left < sizeof (char *))
+        {
+          // Not enough space for another argument pointer.
+          free (args);
+          return TID_ERROR;
+        }
       args->argc++;
       char *arg = strtok_r (NULL, " ", &save_ptr);
       args->argv[args->argc] = arg;
+      space_left -= sizeof (arg);
     }
   
   /* Create a new thread to execute FILE_NAME. */
@@ -222,8 +259,6 @@ start_process (void *args_)
       thread_exit ();
     }
   
-  sema_up (&args->load_sema);
-  
   /* Decrement before writing anything to avoid overwriting PHYS_BASE. */
   if_.esp--;
   for (int i = args->argc - 1; i >= 0; i--)
@@ -240,31 +275,29 @@ start_process (void *args_)
   if_.esp = ((void *) (((unsigned int) if_.esp) / 4 * 4));
   
   /* Null pointer sentinel. */
-  if_.esp -= sizeof (NULL);
-  *(uint8_t **) if_.esp = NULL;
+  PUT_ARG_ON_STACK(if_.esp, uint8_t **, NULL);
   
   for (int i = args->argc - 1; i >= 0; i--)
     {
-      if_.esp -= sizeof (char **);
-      *(char **) if_.esp = args->argv[i];
+      PUT_ARG_ON_STACK(if_.esp, char **, args->argv[i]);
     }
     
   /* Remember where argv starts. */
   args->argv = if_.esp;
-
-  if_.esp -= sizeof (char ***);
-  *((char ***) if_.esp) = args->argv;
-
-  if_.esp -= sizeof (int *);
-  *((int *) if_.esp) = args->argc;
-  
-  if_.esp -= sizeof (int *);
-  *((uint8_t **) if_.esp) = NULL;
-
+  PUT_ARG_ON_STACK(if_.esp, char ***, args->argv);
+  PUT_ARG_ON_STACK(if_.esp, int *, args->argc);
+  PUT_ARG_ON_STACK(if_.esp, uint8_t **, NULL);
   
   process_table_lock ();
-  create_process (thread_tid (), args->parent_tid, executable);
+  struct process *created_process 
+    = create_process (thread_tid (), args->parent_tid, executable);
   process_table_unlock ();
+
+  args->load_success = created_process != NULL;
+
+  sema_up (&args->load_sema);
+  if (!args->load_success)
+    thread_exit ();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -341,6 +374,10 @@ process_exit_with_status (int exit_status)
   p->is_running = false;
   
   sema_up (&p->wait_sema);
+  
+  /* Even though exit_status hasn't been set yet, getting preempted here is
+     fine because we still hold process_lock, so the thread waiting on us
+     cannot attempt to read the status yet. */
 
   if (is_running (p->parent_tid))
     {

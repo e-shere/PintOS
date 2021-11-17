@@ -31,7 +31,7 @@ get_current_files (void)
 void 
 files_init_files (struct files *f)
 {
-  f->fd_map = bitmap_create (MAX_FILE_COUNT + 3);
+  f->fd_map = bitmap_create (MAX_FD_COUNT + 3);
   bitmap_set (f->fd_map, FD_STDIN, true);
   bitmap_set (f->fd_map, FD_STDOUT, true);
   hash_init (&f->fd_table, fd_hash, fd_less, f);
@@ -47,6 +47,9 @@ files_open (struct files *f, char *file_name)
     return FD_FAILURE;
 
   struct file_descriptor *file_desc = malloc (sizeof(struct file_descriptor));
+  if (file_desc == NULL)
+    return FD_FAILURE;
+    
   *file_desc =
   (struct file_descriptor) {
     .fd   = allocate_fd (f),
@@ -59,7 +62,7 @@ files_open (struct files *f, char *file_name)
 bool
 files_is_open (struct files *f, int fd)
 {
-  return (fd >= 0) && (fd < MAX_FILE_COUNT + 2) 
+  return (fd >= 0) && (fd < MAX_FD_COUNT + 2) 
     && (bitmap_test (f->fd_map, fd));
 }
 

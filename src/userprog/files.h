@@ -6,7 +6,7 @@
 #include "filesys/file.h"
 #include "threads/synch.h"
 
-#define MAX_FILE_COUNT 16
+#define MAX_FD_COUNT 128
 #define FD_FAILURE -1
 #define FD_STDIN 0
 #define FD_STDOUT 1

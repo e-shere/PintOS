@@ -14,23 +14,22 @@
 
 typedef uint32_t (handler_func) (const void *, const void *, const void *);
 
+/* Information about a syscall handler. */
 struct handler {
   int num_args;
   handler_func *func;
 };
 
+/* Lock controlling access to the file system. */
+static struct lock filesys_lock;
+
 static void syscall_handler (struct intr_frame *);
 static bool is_valid_user_string (const char *ustr, int max_length);
 static bool is_valid_user_address (const uint8_t *uaddr);
 static bool is_valid_user_address_range (uint8_t *uaddr, uint32_t size);
-//static bool get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size);
 static int get_user_byte (const uint8_t *uaddr);
 
-static struct lock filesys_lock;
-
 static pid_t tid_to_pid (tid_t);
-
-static void do_exit (int status);
 
 static handler_func sys_halt;
 static handler_func sys_exit;
@@ -77,19 +76,19 @@ syscall_handler (struct intr_frame *f UNUSED)
   uint32_t *param = (uint32_t *) f->esp;
   if (!is_valid_user_address_range ((uint8_t *) param, sizeof (uint32_t *)))
     {
-      do_exit (-1);
+      process_exit_with_status (-1);
       return;
     }
   int syscall = *(int *)param;
   if (syscall < 0 || syscall >= NUM_SYSCALL)
-    do_exit(-1);
+    process_exit_with_status(-1);
 
   struct handler h = syscall_map[syscall];
   void *args[3] = { 0 };
   if (!is_valid_user_address_range ((uint8_t *) (param + 1), 
     h.num_args * (sizeof (uint32_t *))))
     {
-      do_exit (-1);
+      process_exit_with_status (-1);
       return;
     }
   for (int i = 1; i <= h.num_args; i++) {
@@ -98,21 +97,13 @@ syscall_handler (struct intr_frame *f UNUSED)
   f->eax = h.func(args[0], args[1], args[2]);
 }
 
+/* Returns the PID of the program running in thread TID. */
 static pid_t
 tid_to_pid (tid_t tid)
 {
   // TODO: store a mapping instead.
   return (pid_t) tid;
 }
-
-static void
-do_exit (const int status)
-{
-  // TODO: close all open files
-  // TODO: send status to the kernel
-  process_exit_with_status (status);
-}
-
 
 static uint32_t
 sys_halt (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
@@ -122,12 +113,11 @@ sys_halt (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNU
   return 0;
 }
 
-/* The UNUSED in the below functions will be removed once we implement them */
 static uint32_t 
 sys_exit (const void *status_, const void *arg2 UNUSED, const void *arg3 UNUSED )
 {
   int status = *(int *) status_;
-  do_exit (status);
+  process_exit_with_status (status);
   NOT_REACHED ();
   return 0;
 }
@@ -154,7 +144,7 @@ sys_create (const void *filename_, const void *initial_size_, const void *arg3 U
 {
   char *filename = *(char **) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
-    do_exit (-1);
+    process_exit_with_status (-1);
   
   uint32_t initial_size = *(uint32_t *) initial_size_;
 
@@ -170,7 +160,7 @@ sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNU
 {
   char *filename = *(char **) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
-    do_exit (-1);
+    process_exit_with_status (-1);
   
   lock_acquire (&filesys_lock);
   bool return_value = filesys_remove (filename);
@@ -184,7 +174,7 @@ sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSE
 {
   char *filename = *(char**) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
-    do_exit (-1);
+    process_exit_with_status (-1);
 
   struct files *current_files = get_current_files ();
   return files_open(current_files, filename);
@@ -214,7 +204,7 @@ static int read_from_file (int fd, const void *buffer, unsigned size) {
   uint8_t *buff = (uint8_t *) buffer;
 
   if (!is_valid_user_address_range (buff, size)) {
-    do_exit(-1);
+    process_exit_with_status(-1);
   }
 
   struct files *current_files = get_current_files ();
@@ -256,7 +246,7 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
   const void *buffer = *(const void **) buffer_;
   if (buffer == NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
     {
-      do_exit (-1);
+      process_exit_with_status (-1);
       NOT_REACHED ();
       //return 0;
     }
@@ -273,7 +263,7 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
     struct file *open_file = files_get (current_files, fd);
 
     if (open_file == NULL) {
-      do_exit (EXIT_FAILURE);
+      process_exit_with_status (EXIT_FAILURE);
     }
 
     bytes_written = (unsigned) file_write (open_file, buffer, size);
@@ -306,7 +296,6 @@ sys_tell (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   
   return -1;
 }
-
 
 static uint32_t 
 sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
@@ -397,24 +386,6 @@ is_valid_user_address_range (uint8_t *start_addr, uint32_t size)
 
   return true;
 }
-
-/* Reads size bytes at user virtual address UADDR into buf
-   Returns false if the read failed.
-static bool
-get_user_bytes (const uint8_t *uaddr, uint8_t *buf, uint32_t size)
-{
-  if (!is_user_vaddr (uaddr + size))
-    return false;
-  
-  for (uint32_t i = 0; i < size; i++)
-    {
-      int current_value = get_user_byte (uaddr + i);
-      if (current_value == -1)
-        return false;
-      buf[i] = current_value;
-    }
-}
-*/
 
 /* Reads a byte at user virtual address UADDR. We assume this is not kernel
    memory. Returns the byte value if successful, -1 if a segfault

@@ -10,10 +10,11 @@
 #define FD_STDIN 0
 #define FD_STDOUT 1
 
+/* Information about a particular program's file descriptors. */
 struct files
   {
-    struct bitmap *fd_map;
-    struct hash fd_table;
+    struct bitmap *fd_map; /* Stores which FDs are in use. */
+    struct hash fd_table;  /* Table of FDs. */
   };
 
 void files_init_files (struct files *);

@@ -28,7 +28,10 @@
   esp -= sizeof (type);		            \
   *(type) esp = value
 
+/* Hash table of processes. */
 static struct hash process_table;
+
+/* Lock controlling access to the process table. */
 static struct lock process_lock;
 
 static hash_hash_func process_hash;
@@ -37,10 +40,11 @@ static hash_less_func process_less;
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
 
-static bool is_running (tid_t); // True iff id is in table and has sema with value == 0
-static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable); // Creates a new struct process and adds it to the table
-static void delete_process (tid_t); // Removes mapping and frees process memory
+static bool is_running (tid_t);
+static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable);
+static void delete_process (tid_t);
 
+/* Data shared between process_execute and start_process. */
 struct arguments
   {
     int argc;
@@ -50,6 +54,7 @@ struct arguments
     tid_t parent_tid;
   };
 
+/* Initalises the process table. */
 void
 process_init (void)
 {
@@ -57,12 +62,14 @@ process_init (void)
   lock_init (&process_lock);
 }
 
+/* Computes a hash for a process. */
 static unsigned
 process_hash (const struct hash_elem *e, void *aux UNUSED)
 {
   return hash_int (hash_entry (e, struct process, process_elem)->tid);
 }
 
+/* Compares two processes by their TIDs. */
 static bool
 process_less (const struct hash_elem *a, 
               const struct hash_elem *b, void *aux UNUSED)
@@ -71,24 +78,30 @@ process_less (const struct hash_elem *a,
          < hash_entry (b, struct process, process_elem)->tid;
 }
 
+/* Locks the process table. */
 void
 process_table_lock (void)
 {
   lock_acquire (&process_lock);
 }
 
+/* Checks whether the process table is locked by the current thread, in which
+   case it may be modified. */
 bool
 process_table_locked (void)
 {
   return lock_held_by_current_thread (&process_lock);
 }
 
+/* Unlocks the process table. */
 void
 process_table_unlock (void)
 {
   lock_release (&process_lock);
 }
 
+/* Returns the process associated with a given TID, or NULL if there isn't
+   one. */ 
 struct process *get_process (tid_t tid)
 {
   ASSERT (process_table_locked ());
@@ -100,6 +113,7 @@ struct process *get_process (tid_t tid)
   return e != NULL ? hash_entry (e, struct process, process_elem) : NULL;
 }
 
+/* Returns true if this TID belongs to a currently running user program. */
 static bool is_running (tid_t tid)
 {
   ASSERT (process_table_locked ());
@@ -107,6 +121,8 @@ static bool is_running (tid_t tid)
   return p != NULL && p->is_running;
 }
 
+/* Creates a process for a thread TID running EXECUTABLE with parent PARENT_TID
+   and adds it to the process table. */
 static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable)
 {
   ASSERT (process_table_locked ());
@@ -125,10 +141,12 @@ static struct process *create_process (tid_t tid, tid_t parent_tid, struct file 
   return p;
 }
 
+/* Deletes the process data for TID from the table and frees its memory. */
 static void
 delete_process (tid_t tid)
 {
   ASSERT (process_table_locked ());
+  ASSERT (!is_running (tid));
   struct process p;
   struct hash_elem *e ;
 
@@ -138,7 +156,7 @@ delete_process (tid_t tid)
 }
 
 /* Starts a new thread running a user program loaded from
-   FILENAME.  The new thread may be scheduled (and may even exit)
+   ARGS_STR.  The new thread may be scheduled (and may even exit)
    before process_execute() returns.  Returns the new process's
    thread id, or TID_ERROR if the thread cannot be created. */
 tid_t
@@ -147,13 +165,12 @@ process_execute (const char *args_str)
   /* The address where the first argument begins */
   struct arguments *args;
   size_t space_left;
+
   /* The total length of args_str. */
   size_t length;
   char *save_ptr;
   tid_t tid;
 
-  /* Make a copy of FILE_NAME.
-     Otherwise there's a race between the caller and load(). */
   args = palloc_get_page (PAL_ZERO);
   if (args == NULL)
     return TID_ERROR;
@@ -171,6 +188,8 @@ process_execute (const char *args_str)
   size_t reserved_space_on_args_page = sizeof (*args);
   reserved_space_on_args_page += sizeof (char *); // argv[0]
   
+  /* If this fails, there could be a program that should be able to run but
+     cannot be loaded. This should not happen. */
   ASSERT (reserved_space_on_thread_page >= reserved_space_on_args_page);
   
   space_left = PGSIZE - reserved_space_on_thread_page;
@@ -351,14 +370,16 @@ process_wait (tid_t child_tid UNUSED)
   return exit_status;
 }
 
+/* Terminate the currently running user program with EXIT_STATUS. */
 void
 process_exit_with_status (int exit_status)
 {
+  tid_t tid = thread_tid ();
+  ASSERT (is_running (tid));
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
 
   process_table_lock ();
 
-  tid_t tid = thread_current ()->tid;
   struct process *p = get_process (tid);
 
   struct list_elem *e;

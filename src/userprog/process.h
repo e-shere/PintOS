@@ -11,20 +11,24 @@ int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
+/* Information about a user program. */
 struct process
   {
-    tid_t tid;
-    struct hash_elem process_elem;
+    tid_t tid;                     /* TID of the thread. */
+    struct hash_elem process_elem; /* Element for process_table. */
 
-    struct semaphore wait_sema;
-    struct list_elem child_elem;
-    struct list dead_children;
-    tid_t parent_tid;
-    int exit_status;
-    bool is_running;
+    struct semaphore wait_sema;    /* Used to wait on this thread. */
+    struct list_elem child_elem;   /* Element for dead_children. */
+    struct list dead_children;     /* Dead children which have not been waited
+                                      on. */
+    tid_t parent_tid;              /* TID of this thread's parent. */
+    int exit_status;               /* Argument passed to exit, or -1 if killed
+                                      due to error. Undefined if is_running is
+                                      set. */
+    bool is_running;               /* Whether this program is still running. */
     
-    struct file *executable;
-    struct files files;
+    struct file *executable;       /* The executable file being run. */
+    struct files files;            /* Information about file descriptors. */
   };
 
 void process_table_lock (void);

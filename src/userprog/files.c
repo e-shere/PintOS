@@ -10,15 +10,16 @@ static hash_action_func fd_destructor;
 
 static int allocate_fd (struct files *);
 
+/* Mapping from an FD to the file it represents. */
 struct file_descriptor
   {
-    int fd;
-    struct hash_elem elem;
-
-    struct file *file;
+    int fd;                /* The file descriptor. */
+    struct hash_elem elem; /* Element for fd_table. */
+    struct file *file;     /* The open file. */
   };
 
 
+/* Returns the files member of the current process. */
 struct files *
 get_current_files (void)
 {
@@ -28,6 +29,7 @@ get_current_files (void)
   return f;
 }
 
+/* Initialises a struct files. */
 void 
 files_init_files (struct files *f)
 {
@@ -37,6 +39,7 @@ files_init_files (struct files *f)
   hash_init (&f->fd_table, fd_hash, fd_less, f);
 }
 
+/* Opens FILE_NAME and returns a newly allocated FD. */
 int
 files_open (struct files *f, char *file_name)
 {
@@ -57,6 +60,7 @@ files_open (struct files *f, char *file_name)
   return file_desc->fd;
 }
 
+/* Checks whether FD is in use. */
 bool
 files_is_open (struct files *f, int fd)
 {
@@ -64,6 +68,7 @@ files_is_open (struct files *f, int fd)
     && (bitmap_test (f->fd_map, fd));
 }
 
+/* Returns the struct file for FD, or NULL if this FD is not in use. */
 struct file *
 files_get (struct files *f, int fd)
 {
@@ -83,6 +88,8 @@ files_get (struct files *f, int fd)
   return hash_entry (e, struct file_descriptor, elem)->file;
 }
 
+/* Closes FD, removing it from the table and freeing it up to be allocated
+   again in the future. */
 void
 files_close (struct files *f, int fd)
 {
@@ -96,6 +103,7 @@ files_close (struct files *f, int fd)
   fd_destructor (e, f);
 }
 
+/* Destroys a struct files. */
 void
 files_destroy_files (struct files *f)
 {
@@ -103,13 +111,14 @@ files_destroy_files (struct files *f)
   bitmap_destroy (f->fd_map);
 }
 
+/* Computes a hash for a file_descriptor. */
 static unsigned
 fd_hash (const struct hash_elem *e, void *aux UNUSED)
 {
   return hash_int (hash_entry (e, struct file_descriptor, elem)->fd);
 }
 
-
+/* Compares two file_descriptors by their FDs. */
 static bool
 fd_less (const struct hash_elem *a,
          const struct hash_elem *b,
@@ -119,6 +128,8 @@ fd_less (const struct hash_elem *a,
          < hash_entry (b, struct file_descriptor, elem)->fd;
 }
 
+/* Destroys a file_descriptor. It must already have been removed from the
+   table. */
 static void
 fd_destructor (struct hash_elem *e, void *f_)
 {
@@ -128,6 +139,7 @@ fd_destructor (struct hash_elem *e, void *f_)
   free (file_desc);
 }
 
+/* Allocates and returns a new FD. */
 static int
 allocate_fd (struct files *f)
 {

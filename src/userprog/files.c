@@ -60,6 +60,11 @@ files_is_open (struct files *f, int fd)
 struct file *
 files_get (struct files *f, int fd)
 {
+
+  if (fd < 0) {
+    return NULL;
+  }
+
   ASSERT (files_is_open (f, fd));
 
   struct file_descriptor file_desc;

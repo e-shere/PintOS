@@ -255,10 +255,17 @@ sys_seek (const void *fd_, const void *position_, const void *arg3 UNUSED)
 }
 
 static uint32_t 
-sys_tell (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_tell (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 {
+  uint32_t fd = *(uint32_t *) fd_;
+  struct files *current_files = get_current_files ();
+  
+  if (fd > 1 && files_is_open (current_files, fd))
+    return file_tell (files_get (current_files, fd));
+  
   return -1;
 }
+
 
 static uint32_t 
 sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)

@@ -82,7 +82,7 @@ syscall_handler (struct intr_frame *f UNUSED)
     }
   int syscall = *(int *)param;
   if (syscall < 0 || syscall >= NUM_SYSCALL)
-    thread_exit (); // should we do something different??
+    do_exit(-1);
 
   struct handler h = syscall_map[syscall];
   void *args[3] = { 0 };

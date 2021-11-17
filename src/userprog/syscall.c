@@ -389,6 +389,8 @@ is_valid_user_address_range (uint8_t *start_addr, uint32_t size)
        current_addr < end_addr - 1;
        current_addr += PGSIZE)
     {
+      if (pg_no (current_addr) == pg_no (end_addr))
+        break;
       if (!is_valid_user_address (current_addr))
         return false;
     }

@@ -107,6 +107,9 @@ static struct process *create_process (tid_t tid, tid_t parent_tid, struct file 
 {
   ASSERT (process_table_locked ());
   struct process *p = malloc (sizeof (struct process));
+  if (p == NULL)
+    return NULL;
+
   p->tid = tid;
   p->parent_tid = parent_tid;
   p->is_running = true;
@@ -222,8 +225,6 @@ start_process (void *args_)
       thread_exit ();
     }
   
-  sema_up (&args->load_sema);
-  
   /* Decrement before writing anything to avoid overwriting PHYS_BASE. */
   if_.esp--;
   for (int i = args->argc - 1; i >= 0; i--)
@@ -263,8 +264,15 @@ start_process (void *args_)
 
   
   process_table_lock ();
-  create_process (thread_tid (), args->parent_tid, executable);
+  struct process *created_process 
+    = create_process (thread_tid (), args->parent_tid, executable);
   process_table_unlock ();
+
+  args->load_success = created_process != NULL;
+
+  sema_up (&args->load_sema);
+  if (!args->load_success)
+    thread_exit ();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in

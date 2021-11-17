@@ -45,6 +45,9 @@ files_open (struct files *f, char *file_name)
     return FD_FAILURE;
 
   struct file_descriptor *file_desc = malloc (sizeof(struct file_descriptor));
+  if (file_desc == NULL)
+    return FD_FAILURE;
+    
   *file_desc =
   (struct file_descriptor) {
     .fd   = allocate_fd (f),

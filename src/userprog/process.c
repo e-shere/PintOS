@@ -24,6 +24,10 @@
 #include "threads/thread.h"
 #include "threads/vaddr.h"
 
+#define PUT_ARG_ON_STACK(esp, type, value)  \
+  esp -= sizeof (type);		            \
+  *(type) esp = value
+
 static struct hash process_table;
 static struct lock process_lock;
 
@@ -271,27 +275,18 @@ start_process (void *args_)
   if_.esp = ((void *) (((unsigned int) if_.esp) / 4 * 4));
   
   /* Null pointer sentinel. */
-  if_.esp -= sizeof (NULL);
-  *(uint8_t **) if_.esp = NULL;
+  PUT_ARG_ON_STACK(if_.esp, uint8_t **, NULL);
   
   for (int i = args->argc - 1; i >= 0; i--)
     {
-      if_.esp -= sizeof (char **);
-      *(char **) if_.esp = args->argv[i];
+      PUT_ARG_ON_STACK(if_.esp, char **, args->argv[i]);
     }
     
   /* Remember where argv starts. */
   args->argv = if_.esp;
-
-  if_.esp -= sizeof (char ***);
-  *((char ***) if_.esp) = args->argv;
-
-  if_.esp -= sizeof (int *);
-  *((int *) if_.esp) = args->argc;
-  
-  if_.esp -= sizeof (int *);
-  *((uint8_t **) if_.esp) = NULL;
-
+  PUT_ARG_ON_STACK(if_.esp, char ***, args->argv);
+  PUT_ARG_ON_STACK(if_.esp, int *, args->argc);
+  PUT_ARG_ON_STACK(if_.esp, uint8_t **, NULL);
   
   process_table_lock ();
   struct process *created_process 

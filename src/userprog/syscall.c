@@ -202,27 +202,62 @@ sys_filesize (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 }
 
 static void read_keyboard (const void *buffer, unsigned size) {
-  uint8_t *buff = (uint8_t *) buffer;
+  // uint8_t *buff = (uint8_t *) buffer;
 
-  for (unsigned i = 0; i < size; i++) {
-    *(buff + i) = input_getc();
+  for (unsigned i = 0; i < size; ++i) {
+    *(uint8_t *)(buffer + i) = input_getc();
   }
 }
 
+static int read_from_file (int fd, const void *buffer, unsigned size) {
+
+  uint8_t *buff = *(uint8_t **) buffer;
+
+  if (!is_valid_user_address_range (buff, size)) {
+    do_exit(-1);
+  }
+
+  if (fd < 0) {
+    return 0;
+  }
+
+  struct files *current_files = get_current_files ();
+
+  if (!files_is_open (current_files, fd)) {
+    return 0;
+  }
+
+  struct file *open_file = files_get (current_files, fd);
+
+  // struct hash_elem *e = hash_find (current_files->fd_table, )
+
+  // for (unsigned i = 0; i < size; i++) {
+  //   if (!is_valid_user_address (buff + i)) {
+  //     return 0;
+  //   }
+  // }
+
+  printf("does this print 2");
+
+  return file_read (open_file, buff, size);
+
+}
+
 static uint32_t 
-sys_read (const void *fd_, const void *buffer, const void *size_)
+sys_read (const void *fd_, const void *buffer_, const void *size_)
 {
   int fd = *(int *) fd_;
   unsigned size = *(unsigned *) size_;
-  int bytes_written;
+  unsigned bytes_written;
+  const void *buffer = *(const void **) buffer_;
 
   if (fd == FD_STDOUT) {
-    bytes_written = -1;
+    bytes_written = 0;
   } else if (fd == FD_STDIN) {
     read_keyboard(buffer, size);
     bytes_written = size;
   } else {
-    //read from the file
+    bytes_written = read_from_file (fd, buffer, size);
   }
 
   return bytes_written;
@@ -366,7 +401,7 @@ is_valid_user_address_range (uint8_t *start_addr, uint32_t size)
   if (!is_valid_user_address (start_addr) || !is_valid_user_address (end_addr - 1))
     return false;
   for (uint8_t *current_addr = start_addr + PGSIZE; 
-       current_addr < end_addr;
+       current_addr < end_addr - 1;
        current_addr += PGSIZE)
     {
       if (!is_valid_user_address (current_addr))

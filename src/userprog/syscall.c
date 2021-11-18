@@ -108,6 +108,34 @@ tid_to_pid (tid_t tid)
   return (pid_t) tid;
 }
 
+/* Reads size bytes from the keyboard into buffer, which is in user space. 
+   Kills the process if the buffer cannot be written to. */
+static void read_keyboard (const void *buffer, unsigned size) {
+  for (unsigned i = 0; i < size; i++) {
+    *(uint8_t *)(buffer + i) = input_getc();
+  }
+}
+
+/* Reads size bytes into buffer from file with given file descriptor fd.
+   If the buffer cannot be written to, this kills the process. */
+static int read_from_file (int fd, const void *buffer, unsigned size) {
+
+  uint8_t *buff = (uint8_t *) buffer;
+
+  if (!is_valid_user_address_range (buff, size))
+    process_exit_with_status(STATUS_ERROR);
+  
+
+  struct files *current_files = get_current_files ();
+
+  if (!files_is_open (current_files, fd))
+    return 0;
+  
+  struct file *open_file = files_get (current_files, fd);
+
+  return file_read (open_file, buff, size);
+}
+
 static uint32_t
 sys_halt (const void *arg1 UNUSED, 
           const void *arg2 UNUSED, 
@@ -208,31 +236,6 @@ sys_filesize (const void *fd_,
   return file_length (files_get (current_files, fd));
 }
 
-static void read_keyboard (const void *buffer, unsigned size) {
-  for (unsigned i = 0; i < size; ++i) {
-    *(uint8_t *)(buffer + i) = input_getc();
-  }
-}
-
-static int read_from_file (int fd, const void *buffer, unsigned size) {
-
-  uint8_t *buff = (uint8_t *) buffer;
-
-  if (!is_valid_user_address_range (buff, size)) {
-    process_exit_with_status(STATUS_ERROR);
-  }
-
-  struct files *current_files = get_current_files ();
-
-  if (!files_is_open (current_files, fd)) {
-    return 0;
-  }
-
-  struct file *open_file = files_get (current_files, fd);
-
-  return file_read (open_file, buff, size);
-}
-
 static uint32_t 
 sys_read (const void *fd_, const void *buffer_, const void *size_)
 {
@@ -278,9 +281,9 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
       return 0;
     struct file *open_file = files_get (current_files, fd);
 
-    if (open_file == NULL) {
+    if (open_file == NULL)
       process_exit_with_status (STATUS_ERROR);
-    }
+    
 
     bytes_written = (unsigned) file_write (open_file, buffer, size);
   }

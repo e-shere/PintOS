@@ -32,19 +32,20 @@ struct child
   {
     tid_t tid;                     /* TID of the child thread. */
     struct hash_elem elem;         /* Element for user_prog.children. */
-    struct guard *guard;
+    struct guard *guard;           /* Guard for relationship with the child */
   };
 
 struct guard
   {
-    struct lock lock;
-    struct relationship *relationship;
+    struct lock lock;                      /* Controls access to relationship */
+    struct relationship *relationship;     /* Stores exit status of child and
+                                              controls waiting */
   };
 
 struct relationship
   {
-    int exit_status;
-    struct semaphore wait_sema;
+    int exit_status;              /* Exit status of the child */
+    struct semaphore wait_sema;   /* Controls waiting on child termination */
   };
 
 static hash_hash_func child_hash;
@@ -57,12 +58,13 @@ static bool load (const char *cmdline, void (**eip) (void), void **esp);
 /* Data shared between process_execute and start_process. */
 struct arguments
   {
-    int argc;
-    char **argv;
-    struct semaphore load_sema;
-    bool load_success;
-    tid_t parent_tid;
-    struct guard *guard;
+    int argc;                          /* Number of arguments */
+    char **argv;                       /* Pointers to arguments */
+    struct semaphore load_sema;        /* Prevents process_execute from exiting
+                                          before start_process finishes */
+    bool load_success;                 /* Whether start_process succeeded */
+    struct guard *guard;               /* Guard for parent/child 
+                                          relationship */
   };
 
 /* Starts a new thread running a user program loaded from
@@ -86,17 +88,16 @@ process_execute (const char *args_str)
     return TID_ERROR;
   
   sema_init (&args->load_sema, 0);
-  args->parent_tid = thread_tid ();
   
   size_t reserved_space_on_thread_page = sizeof (struct thread);
-  reserved_space_on_thread_page += sizeof (void *); // Return address.
-  reserved_space_on_thread_page += sizeof (int); // argc
-  reserved_space_on_thread_page += sizeof (char **); // argv
-  reserved_space_on_thread_page += sizeof (char *); // argv[0]
-  reserved_space_on_thread_page += sizeof (uint8_t) * 4; // Word alignment.
+  reserved_space_on_thread_page += sizeof (void *); /* Return address. */
+  reserved_space_on_thread_page += sizeof (int); /* argc */
+  reserved_space_on_thread_page += sizeof (char **); /* argv */
+  reserved_space_on_thread_page += sizeof (char *); /* argv[0] */
+  reserved_space_on_thread_page += sizeof (uint8_t) * 4; /* Word alignment. */
   
   size_t reserved_space_on_args_page = sizeof (*args);
-  reserved_space_on_args_page += sizeof (char *); // argv[0]
+  reserved_space_on_args_page += sizeof (char *); /* argv[0] */
   
   /* If this fails, there could be a program that should be able to run but
      cannot be loaded. This should not happen. */
@@ -110,7 +111,7 @@ process_execute (const char *args_str)
   space_left -= length;
   if (args_str[length] != '\0')
     {
-      // args_str was longer than space_left, we could not fit it all.
+      /* args_str was longer than space_left, we could not fit it all. */
       free (args);
       return TID_ERROR;
     }
@@ -123,7 +124,7 @@ process_execute (const char *args_str)
     {
       if (space_left < sizeof (char *))
         {
-          // Not enough space for another argument pointer.
+          /* Not enough space for another argument pointer. */
           free (args);
           return TID_ERROR;
         }

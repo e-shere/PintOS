@@ -339,6 +339,7 @@ process_wait (tid_t child_tid)
   int status = relationship->exit_status;
   
   free (relationship);
+  lock_acquire (child->guard->lock);
   free (child->guard);
   hash_delete (children, &child->elem);
   free (child);

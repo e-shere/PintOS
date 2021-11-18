@@ -12,12 +12,15 @@
 #include "devices/shutdown.h"
 #include "lib/user/syscall.h"
 
+#define STATUS_ERROR -1
+#define FILESIZE_ERROR -1
+
 typedef uint32_t (handler_func) (const void *, const void *, const void *);
 
 /* Information about a syscall handler. */
 struct handler {
-  int num_args;
-  handler_func *func;
+  int num_args;                 /* Number of arguments the syscall takes */
+  handler_func *func;           /* Function implementing the syscall */
 };
 
 /* Lock controlling access to the file system. */
@@ -75,24 +78,25 @@ syscall_handler (struct intr_frame *f UNUSED)
   uint32_t *param = (uint32_t *) f->esp;
   if (!is_valid_user_address_range ((uint8_t *) param, sizeof (uint32_t *)))
     {
-      process_exit_with_status (-1);
+      process_exit_with_status (STATUS_ERROR);
       return;
     }
   int syscall = *(int *)param;
   if (syscall < 0 || syscall >= NUM_SYSCALL)
-    process_exit_with_status(-1);
+    process_exit_with_status(STATUS_ERROR);
 
   struct handler h = syscall_map[syscall];
   void *args[3] = { 0 };
   if (!is_valid_user_address_range ((uint8_t *) (param + 1), 
     h.num_args * (sizeof (uint32_t *))))
     {
-      process_exit_with_status (-1);
+      process_exit_with_status (STATUS_ERROR);
       return;
     }
   for (int i = 1; i <= h.num_args; i++) {
     args[i - 1] = (void *) (param + i);
   }
+  /* Sets return value of the syscall */
   f->eax = h.func(args[0], args[1], args[2]);
 }
 
@@ -100,7 +104,6 @@ syscall_handler (struct intr_frame *f UNUSED)
 static pid_t
 tid_to_pid (tid_t tid)
 {
-  // TODO: store a mapping instead.
   return (pid_t) tid;
 }
 
@@ -145,7 +148,7 @@ sys_create (const void *filename_, const void *initial_size_, const void *arg3 U
 {
   char *filename = *(char **) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
-    process_exit_with_status (-1);
+    process_exit_with_status (STATUS_ERROR);
   
   uint32_t initial_size = *(uint32_t *) initial_size_;
 
@@ -161,7 +164,7 @@ sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNU
 {
   char *filename = *(char **) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
-    process_exit_with_status (-1);
+    process_exit_with_status (STATUS_ERROR);
   
   lock_acquire (&filesys_lock);
   bool return_value = filesys_remove (filename);
@@ -175,7 +178,7 @@ sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSE
 {
   char *filename = *(char**) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
-    process_exit_with_status (-1);
+    process_exit_with_status (STATUS_ERROR);
 
   struct files *current_files = get_current_files ();
   return files_open(current_files, filename);
@@ -188,13 +191,11 @@ sys_filesize (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   struct files *current_files = get_current_files ();
   
   if (fd <= 1 || !files_is_open (current_files, fd))
-    return -1;
+    return FILESIZE_ERROR;
   return file_length (files_get (current_files, fd));
 }
 
 static void read_keyboard (const void *buffer, unsigned size) {
-  // uint8_t *buff = (uint8_t *) buffer;
-
   for (unsigned i = 0; i < size; ++i) {
     *(uint8_t *)(buffer + i) = input_getc();
   }
@@ -205,7 +206,7 @@ static int read_from_file (int fd, const void *buffer, unsigned size) {
   uint8_t *buff = (uint8_t *) buffer;
 
   if (!is_valid_user_address_range (buff, size)) {
-    process_exit_with_status(-1);
+    process_exit_with_status(STATUS_ERROR);
   }
 
   struct files *current_files = get_current_files ();
@@ -247,9 +248,9 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
   const void *buffer = *(const void **) buffer_;
   if (buffer == NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
     {
-      process_exit_with_status (-1);
+      process_exit_with_status (STATUS_ERROR);
       NOT_REACHED ();
-      //return 0;
+      return 0;
     }
   unsigned bytes_written = 0;
 
@@ -264,7 +265,7 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
     struct file *open_file = files_get (current_files, fd);
 
     if (open_file == NULL) {
-      process_exit_with_status (-1);
+      process_exit_with_status (STATUS_ERROR);
     }
 
     bytes_written = (unsigned) file_write (open_file, buffer, size);
@@ -295,7 +296,7 @@ sys_tell (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   if (fd > 1 && files_is_open (current_files, fd))
     return file_tell (files_get (current_files, fd));
   
-  return -1;
+  return STATUS_ERROR;
 }
 
 static uint32_t 
@@ -369,10 +370,9 @@ static bool
 is_valid_user_address_range (uint8_t *start_addr, uint32_t size)
 {
   uint8_t *end_addr = start_addr + size;
-  // Case 1
   if (pg_no (start_addr) == pg_no (end_addr))
     return is_valid_user_address (start_addr);
-  // Case 2
+  
   if (!is_valid_user_address (start_addr) || !is_valid_user_address (end_addr - 1))
     return false;
   for (uint8_t *current_addr = start_addr + PGSIZE; 

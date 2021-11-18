@@ -28,6 +28,25 @@
   esp -= sizeof (type);		            \
   *(type) esp = value
 
+struct child
+  {
+    tid_t tid;                     /* TID of the child thread. */
+    struct hash_elem elem;         /* Element for user_prog.children. */
+    struct guard *guard;
+  };
+
+struct guard
+  {
+    struct lock lock;
+    struct relationship *relationship;
+  };
+
+struct relationship
+  {
+    int exit_status;
+    struct semaphore wait_sema;
+  };
+
 static hash_hash_func child_hash;
 static hash_less_func child_less;
 static hash_action_func destroy_child;

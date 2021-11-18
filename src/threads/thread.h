@@ -108,7 +108,7 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct user_prog *user_prog;        /* User program in this thread. */
-    bool children_initalised;
+    bool children_initialised;
     struct hash children; 
 #endif
 

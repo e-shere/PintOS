@@ -60,9 +60,9 @@ struct arguments
   {
     int argc;                          /* Number of arguments */
     char **argv;                       /* Pointers to arguments */
-    struct semaphore load_sema;        /* Prevents process_execute from exiting
+    struct semaphore start_sema;       /* Prevents process_execute from exiting
                                           before start_process finishes */
-    bool load_success;                 /* Whether start_process succeeded */
+    bool start_success;                /* Whether start_process succeeded */
     struct guard *guard;               /* Guard for parent/child 
                                           relationship */
   };
@@ -87,7 +87,7 @@ process_execute (const char *args_str)
   if (args == NULL)
     return TID_ERROR;
   
-  sema_init (&args->load_sema, 0);
+  sema_init (&args->start_sema, 0);
   
   size_t reserved_space_on_thread_page = sizeof (struct thread);
   reserved_space_on_thread_page += sizeof (void *); /* Return address. */
@@ -141,10 +141,10 @@ process_execute (const char *args_str)
       palloc_free_page (args);
       return TID_ERROR;
     }
-  if (!t->children_initalised)
+  if (!t->children_initialised)
     {
       hash_init (&t->children, child_hash, child_less, NULL);
-      t->children_initalised = true;
+      t->children_initialised = true;
     }
 
   child->guard = malloc (sizeof (struct guard));
@@ -178,8 +178,8 @@ process_execute (const char *args_str)
       return TID_ERROR;
     }
   
-  sema_down (&args->load_sema);
-  if (!args->load_success)
+  sema_down (&args->start_sema);
+  if (!args->start_success)
     {
       free (child->guard->relationship);
       free (child->guard);
@@ -214,18 +214,18 @@ start_process (void *args_)
 
   if (executable == NULL) 
     {
-      sema_up (&args->load_sema);
+      sema_up (&args->start_sema);
       thread_exit ();
     }
   
   file_deny_write (executable);
 
-  args->load_success = load (file_name, &if_.eip, &if_.esp);
+  args->start_success = load (file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
-  if (!args->load_success) 
+  if (!args->start_success) 
     {
-      sema_up (&args->load_sema);
+      sema_up (&args->start_sema);
       thread_exit ();
     }
   
@@ -262,8 +262,8 @@ start_process (void *args_)
   
   if (user_prog == NULL)
     {
-      args->load_success = false;
-      sema_up (&args->load_sema);
+      args->start_success = false;
+      sema_up (&args->start_sema);
       thread_exit ();
     }
 
@@ -272,7 +272,7 @@ start_process (void *args_)
   user_prog->executable = executable;
   files_init_files (&user_prog->files);
   
-  sema_up (&args->load_sema);
+  sema_up (&args->start_sema);
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -313,7 +313,7 @@ child_less (const struct hash_elem *a,
 int
 process_wait (tid_t child_tid)
 {
-  if (!thread_current ()->children_initalised)
+  if (!thread_current ()->children_initialised)
     {
       /* This process has never called process_execute, so it cannot have any
          children. */
@@ -337,10 +337,12 @@ process_wait (tid_t child_tid)
   struct relationship *relationship = child->guard->relationship;
   
   sema_down (&relationship->wait_sema);
+  
+  lock_acquire (&child->guard->lock);
+  
   int status = relationship->exit_status;
   
   free (relationship);
-  lock_acquire (child->guard->lock);
   free (child->guard);
   hash_delete (children, &child->elem);
   free (child);
@@ -354,8 +356,11 @@ process_exit_with_status (int exit_status)
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
 
   struct user_prog *user_prog = thread_current ()->user_prog;
-  struct hash *children = &thread_current ()->children;
-  hash_destroy (children, destroy_child);
+  if (thread_current ()->children_initialised)
+    {
+      struct hash *children = &thread_current ()->children;
+      hash_destroy (children, destroy_child);
+    }
   
   struct guard *parent = user_prog->parent;
   lock_acquire (&parent->lock);

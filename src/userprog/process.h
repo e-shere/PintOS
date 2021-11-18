@@ -6,29 +6,38 @@
 
 void process_init (void);
 
+void process_init_children (struct thread *t);
+
 tid_t process_execute (const char *file_name);
 int process_wait (tid_t);
 void process_exit (void);
 void process_activate (void);
 
 /* Information about a user program. */
-struct process
+struct user_prog
   {
-    tid_t tid;                     /* TID of the thread. */
-    struct hash_elem process_elem; /* Element for process_table. */
-
-    struct semaphore wait_sema;    /* Used to wait on this thread. */
-    struct list_elem child_elem;   /* Element for dead_children. */
-    struct list dead_children;     /* Dead children which have not been waited
-                                      on. */
-    tid_t parent_tid;              /* TID of this thread's parent. */
-    int exit_status;               /* Argument passed to exit, or -1 if killed
-                                      due to error. Undefined if is_running is
-                                      set. */
-    bool is_running;               /* Whether this program is still running. */
-    
+    struct guard *parent;
     struct file *executable;       /* The executable file being run. */
     struct files files;            /* Information about file descriptors. */
+  };
+
+struct child
+  {
+    tid_t tid;                     /* TID of the child thread. */
+    struct hash_elem elem;         /* Element for user_prog.children. */
+    struct guard *guard;
+  };
+
+struct guard
+  {
+    struct lock lock;
+    struct relationship *relationship;
+  };
+
+struct relationship
+  {
+    int exit_status;
+    struct semaphore wait_sema;
   };
 
 void process_table_lock (void);

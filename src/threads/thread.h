@@ -6,6 +6,7 @@
 #include <stdint.h>
 #include "threads/synch.h"
 #include "threads/fixed-point.h"
+#include "lib/kernel/hash.h"
 
 /* States in a thread's life cycle. */
 enum thread_status
@@ -106,6 +107,9 @@ struct thread
 #ifdef USERPROG
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
+    struct user_prog *user_prog;        /* User program in this thread. */
+    bool children_initalised;
+    struct hash children; 
 #endif
 
     /* Owned by thread.c. */
@@ -120,8 +124,6 @@ extern bool thread_mlfqs;
 void thread_init (void);
 void thread_start (void);
 size_t threads_ready (void);
-
-tid_t thread_get_main_tid (void);
 
 void thread_tick (void);
 void thread_print_stats (void);

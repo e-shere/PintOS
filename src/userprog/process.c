@@ -28,21 +28,31 @@
   esp -= sizeof (type);		            \
   *(type) esp = value
 
-/* Hash table of processes. */
-static struct hash process_table;
+struct child
+  {
+    tid_t tid;                     /* TID of the child thread. */
+    struct hash_elem elem;         /* Element for user_prog.children. */
+    struct guard *guard;
+  };
 
-/* Lock controlling access to the process table. */
-static struct lock process_lock;
+struct guard
+  {
+    struct lock lock;
+    struct relationship *relationship;
+  };
 
-static hash_hash_func process_hash;
-static hash_less_func process_less;
+struct relationship
+  {
+    int exit_status;
+    struct semaphore wait_sema;
+  };
+
+static hash_hash_func child_hash;
+static hash_less_func child_less;
+static hash_action_func destroy_child;
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmdline, void (**eip) (void), void **esp);
-
-static bool is_running (tid_t);
-static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable);
-static void delete_process (tid_t);
 
 /* Data shared between process_execute and start_process. */
 struct arguments
@@ -52,107 +62,8 @@ struct arguments
     struct semaphore load_sema;
     bool load_success;
     tid_t parent_tid;
+    struct guard *guard;
   };
-
-/* Initalises the process table. */
-void
-process_init (void)
-{
-  hash_init (&process_table, process_hash, process_less, NULL);
-  lock_init (&process_lock);
-}
-
-/* Computes a hash for a process. */
-static unsigned
-process_hash (const struct hash_elem *e, void *aux UNUSED)
-{
-  return hash_int (hash_entry (e, struct process, process_elem)->tid);
-}
-
-/* Compares two processes by their TIDs. */
-static bool
-process_less (const struct hash_elem *a, 
-              const struct hash_elem *b, void *aux UNUSED)
-{
-  return hash_entry (a, struct process, process_elem)->tid 
-         < hash_entry (b, struct process, process_elem)->tid;
-}
-
-/* Locks the process table. */
-void
-process_table_lock (void)
-{
-  lock_acquire (&process_lock);
-}
-
-/* Checks whether the process table is locked by the current thread, in which
-   case it may be modified. */
-bool
-process_table_locked (void)
-{
-  return lock_held_by_current_thread (&process_lock);
-}
-
-/* Unlocks the process table. */
-void
-process_table_unlock (void)
-{
-  lock_release (&process_lock);
-}
-
-/* Returns the process associated with a given TID, or NULL if there isn't
-   one. */ 
-struct process *get_process (tid_t tid)
-{
-  ASSERT (process_table_locked ());
-  struct process p;
-  struct hash_elem *e;
-  
-  p.tid = tid;
-  e = hash_find (&process_table, &p.process_elem);
-  return e != NULL ? hash_entry (e, struct process, process_elem) : NULL;
-}
-
-/* Returns true if this TID belongs to a currently running user program. */
-static bool is_running (tid_t tid)
-{
-  ASSERT (process_table_locked ());
-  struct process *p = get_process (tid);
-  return p != NULL && p->is_running;
-}
-
-/* Creates a process for a thread TID running EXECUTABLE with parent PARENT_TID
-   and adds it to the process table. */
-static struct process *create_process (tid_t tid, tid_t parent_tid, struct file *executable)
-{
-  ASSERT (process_table_locked ());
-  struct process *p = malloc (sizeof (struct process));
-  if (p == NULL)
-    return NULL;
-
-  p->tid = tid;
-  p->parent_tid = parent_tid;
-  p->is_running = true;
-  p->executable = executable;
-  hash_insert (&process_table, &p->process_elem);
-  list_init (&p->dead_children);
-  sema_init (&p->wait_sema, 0);
-  files_init_files (&p->files);
-  return p;
-}
-
-/* Deletes the process data for TID from the table and frees its memory. */
-static void
-delete_process (tid_t tid)
-{
-  ASSERT (process_table_locked ());
-  struct process p;
-  struct hash_elem *e ;
-
-  p.tid = tid;
-  e = hash_delete (&process_table, &p.process_elem);
-  free (hash_entry (e, struct process, process_elem));
-}
 
 /* Starts a new thread running a user program loaded from
    ARGS_STR.  The new thread may be scheduled (and may even exit)
@@ -206,7 +117,6 @@ process_execute (const char *args_str)
 
   args->argv = (char **) (((uint8_t *) args) + sizeof (*args) + length + 1);
   args->argv[0] = args_str_ptr;
-
   
   strtok_r (args->argv[0], " ", &save_ptr);
   while (args->argv[args->argc] != NULL)
@@ -223,10 +133,46 @@ process_execute (const char *args_str)
       space_left -= sizeof (arg);
     }
   
+  struct thread *t = thread_current ();
+  struct child *child = malloc (sizeof (struct child));
+  if (child == NULL)
+    {
+      palloc_free_page (args);
+      return TID_ERROR;
+    }
+  if (!t->children_initalised)
+    {
+      hash_init (&t->children, child_hash, child_less, NULL);
+      t->children_initalised = true;
+    }
+
+  child->guard = malloc (sizeof (struct guard));
+  if (child->guard == NULL)
+    {
+      free (child);
+      palloc_free_page  (args);
+      return TID_ERROR;
+    }
+  args->guard = child->guard;
+  lock_init (&child->guard->lock);
+
+  child->guard->relationship = malloc (sizeof (struct relationship));
+  if (child->guard->relationship == NULL)
+    {
+      free (child->guard);
+      free (child);
+      palloc_free_page (args);
+      return TID_ERROR;
+    }
+  sema_init (&child->guard->relationship->wait_sema, 0);
+  
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
     {
+      free (child->guard->relationship);
+      free (child->guard);
+      free (child);
       palloc_free_page (args);
       return TID_ERROR;
     }
@@ -234,10 +180,15 @@ process_execute (const char *args_str)
   sema_down (&args->load_sema);
   if (!args->load_success)
     {
+      free (child->guard->relationship);
+      free (child->guard);
+      free (child);
       palloc_free_page (args); 
       return TID_ERROR;
     }
   palloc_free_page (args);
+  child->tid = tid;
+  hash_insert (&t->children, &child->elem);
 
   return tid;
 }
@@ -306,16 +257,21 @@ start_process (void *args_)
   PUT_ARG_ON_STACK(if_.esp, int *, args->argc);
   PUT_ARG_ON_STACK(if_.esp, uint8_t **, NULL);
   
-  process_table_lock ();
-  struct process *created_process 
-    = create_process (thread_tid (), args->parent_tid, executable);
-  process_table_unlock ();
+  struct user_prog *user_prog = malloc (sizeof (struct user_prog));
+  
+  if (user_prog == NULL)
+    {
+      args->load_success = false;
+      sema_up (&args->load_sema);
+      thread_exit ();
+    }
 
-  args->load_success = created_process != NULL;
-
+  thread_current ()->user_prog = user_prog;
+  user_prog->parent = args->guard;
+  user_prog->executable = executable;
+  files_init_files (&user_prog->files);
+  
   sema_up (&args->load_sema);
-  if (!args->load_success)
-    thread_exit ();
 
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
@@ -325,6 +281,23 @@ start_process (void *args_)
      and jump to it. */
   asm volatile ("movl %0, %%esp; jmp intr_exit" : : "g" (&if_) : "memory");
   NOT_REACHED ();
+}
+
+/* Computes a hash for a child. */
+static unsigned
+child_hash (const struct hash_elem *e, void *aux UNUSED)
+{
+  return hash_int (hash_entry (e, struct child, elem)->tid);
+}
+
+/* Compares two children by their TIDs. */
+static bool
+child_less (const struct hash_elem *a,
+            const struct hash_elem *b,
+            void *aux UNUSED)
+{
+  return hash_entry (a, struct child, elem)->tid
+         < hash_entry (b, struct child, elem)->tid;
 }
 
 /* Waits for thread TID to die and returns its exit status. 
@@ -337,81 +310,92 @@ start_process (void *args_)
  * This function will be implemented in task 2.
  * For now, it does nothing. */
 int
-process_wait (tid_t child_tid UNUSED)
+process_wait (tid_t child_tid)
 {
-  process_table_lock ();
-
-  struct process *p = get_process (child_tid);
-  if (p == NULL) 
+  if (!thread_current ()->children_initalised)
     {
-      // This process doesn't exist or has already been waited on.
-      process_table_unlock ();
-      return -1;
+      /* This process has never called process_execute, so it cannot have any
+         children. */
+      return TID_ERROR;
     }
-  if (p->parent_tid != thread_tid ())
-    {
-      // This is not this thread's child
-      process_table_unlock ();
-      return -1;
-    }
-  process_table_unlock ();
-  
-  sema_down (&p->wait_sema);
-  
-  process_table_lock ();
-  int exit_status = p->exit_status;
-  if (thread_tid () != thread_get_main_tid ())
-    list_remove (&p->child_elem);
-  delete_process (child_tid);
-  
-  process_table_unlock ();
 
-  return exit_status;
+  struct hash_elem *e;
+  struct child fake_child;
+  struct child *child;
+  struct hash *children = &thread_current ()->children;
+  fake_child.tid = child_tid; 
+  
+  e = hash_find (children, &fake_child.elem);
+  if (e == NULL)
+    {
+      /* CHILD_TID is not a child of this thread or has already been waited
+         on. */
+      return TID_ERROR;
+    }
+  child = hash_entry (e, struct child, elem);  
+  struct relationship *relationship = child->guard->relationship;
+  
+  sema_down (&relationship->wait_sema);
+  int status = relationship->exit_status;
+  
+  free (relationship);
+  free (child->guard);
+  hash_delete (children, &child->elem);
+  free (child);
+  return status;
 }
 
 /* Terminate the currently running user program with EXIT_STATUS. */
 void
 process_exit_with_status (int exit_status)
 {
-  process_table_lock ();
-  tid_t tid = thread_tid ();
-  ASSERT (is_running (tid));
   printf("%s: exit(%d)\n", thread_current ()->name, exit_status);
 
-  struct process *p = get_process (tid);
-
-  struct list_elem *e;
-  for (e = list_begin (&p->dead_children); 
-       e != list_end (&p->dead_children); 
-       e = list_next (e))
+  struct user_prog *user_prog = thread_current ()->user_prog;
+  struct hash *children = &thread_current ()->children;
+  hash_destroy (children, destroy_child);
+  
+  struct guard *parent = user_prog->parent;
+  lock_acquire (&parent->lock);
+  struct relationship *relationship = parent->relationship;
+  
+  if (relationship == NULL)
+    free (parent);
+  else
     {
-      delete_process (list_entry (e, struct process, child_elem)->tid);
+      relationship->exit_status = exit_status;
+      sema_up (&relationship->wait_sema);
+      lock_release (&parent->lock);
     }
   
-  file_close (p->executable);
-  files_destroy_files (&p->files);
-  p->is_running = false;
-  
-  sema_up (&p->wait_sema);
-  
-  /* Even though exit_status hasn't been set yet, getting preempted here is
-     fine because we still hold process_lock, so the thread waiting on us
-     cannot attempt to read the status yet. */
+  file_close (user_prog->executable);
+  files_destroy_files (&user_prog->files);
+  free (user_prog);
 
-  if (is_running (p->parent_tid))
-    {
-      p->exit_status = exit_status;
-      struct process *parent = get_process (p->parent_tid);
-      list_push_back (&parent->dead_children, &p->child_elem);
-    }
-  else if (p->parent_tid != thread_get_main_tid ())
-    {
-      delete_process (tid);
-    }
-
-  process_table_unlock ();
   thread_exit ();
   NOT_REACHED ();
+}
+
+static void
+destroy_child (struct hash_elem *e, void *aux UNUSED)
+{
+  struct child *child = hash_entry (e, struct child, elem);  
+  struct guard *guard = child->guard;
+  
+  lock_acquire (&guard->lock);
+  struct relationship *relationship = guard->relationship;
+
+  bool child_has_exited = sema_try_down (&relationship->wait_sema);
+  free (relationship);
+  free (child);
+  
+  if (child_has_exited)
+    free (guard);
+  else
+    {
+      guard->relationship = NULL;
+      lock_release (&guard->lock);
+    }
 }
 
 /* Free the current process's resources. */

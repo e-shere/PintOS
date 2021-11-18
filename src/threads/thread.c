@@ -71,8 +71,6 @@ bool thread_mlfqs;
 /* Average load for MLFQS. */
 static fp load_avg;
 
-static tid_t main_tid;
-
 static void kernel_thread (thread_func *, void *aux);
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
@@ -141,13 +139,6 @@ thread_init (void)
     }
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
-  main_tid = initial_thread->tid;
-}
-
-tid_t
-thread_get_main_tid (void)
-{
-  return main_tid;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.

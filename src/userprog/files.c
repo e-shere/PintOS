@@ -1,5 +1,6 @@
 #include "userprog/files.h"
 #include <stdlib.h>
+#include "threads/thread.h"
 #include "threads/malloc.h"
 #include "filesys/filesys.h"
 #include "userprog/process.h"
@@ -23,9 +24,7 @@ struct file_descriptor
 struct files *
 get_current_files (void)
 {
-  process_table_lock ();
-  struct files *f = &get_process (thread_current ()->tid)->files;
-  process_table_unlock ();
+  struct files *f = &thread_current ()->user_prog->files;
   return f;
 }
 

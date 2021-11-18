@@ -127,7 +127,9 @@ sys_exec (const void *file, const void *arg2 UNUSED, const void *arg3 UNUSED)
   char *cmd_line = *(char **) file;
   if (!is_valid_user_string (cmd_line, PGSIZE))
     return tid_to_pid (TID_ERROR);
+  lock_acquire (&filesys_lock);
   tid_t tid = process_execute (cmd_line);
+  lock_release (&filesys_lock);
   return tid_to_pid (tid);
 }
 
@@ -262,7 +264,7 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
     struct file *open_file = files_get (current_files, fd);
 
     if (open_file == NULL) {
-      process_exit_with_status (EXIT_FAILURE);
+      process_exit_with_status (-1);
     }
 
     bytes_written = (unsigned) file_write (open_file, buffer, size);

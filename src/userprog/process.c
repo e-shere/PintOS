@@ -116,6 +116,11 @@ process_execute (const char *args_str)
   
   struct thread *t = thread_current ();
   struct child *child = malloc (sizeof (struct child));
+  if (child == NULL)
+    {
+      free (args);
+      return TID_ERROR;
+    }
   if (!t->children_initalised)
     {
       hash_init (&t->children, child_hash, child_less, NULL);
@@ -124,10 +129,20 @@ process_execute (const char *args_str)
   hash_insert (&t->children, &child->elem);
 
   child->guard = malloc (sizeof (struct guard));
+  if (child->guard == NULL)
+    {
+      free (args);
+      return TID_ERROR;
+    }
   args->guard = child->guard;
   lock_init (&child->guard->lock);
 
   child->guard->relationship = malloc (sizeof (struct relationship));
+  if (child->guard->relationship == NULL)
+    {
+      free (args);
+      return TID_ERROR;
+    }
   sema_init (&child->guard->relationship->wait_sema, 0);
   
   /* Create a new thread to execute FILE_NAME. */

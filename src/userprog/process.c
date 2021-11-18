@@ -118,7 +118,7 @@ process_execute (const char *args_str)
   struct child *child = malloc (sizeof (struct child));
   if (child == NULL)
     {
-      free (args);
+      palloc_free_page (args);
       return TID_ERROR;
     }
   if (!t->children_initalised)
@@ -126,12 +126,12 @@ process_execute (const char *args_str)
       hash_init (&t->children, child_hash, child_less, NULL);
       t->children_initalised = true;
     }
-  hash_insert (&t->children, &child->elem);
 
   child->guard = malloc (sizeof (struct guard));
   if (child->guard == NULL)
     {
-      free (args);
+      free (child);
+      palloc_free_page  (args);
       return TID_ERROR;
     }
   args->guard = child->guard;
@@ -140,7 +140,9 @@ process_execute (const char *args_str)
   child->guard->relationship = malloc (sizeof (struct relationship));
   if (child->guard->relationship == NULL)
     {
-      free (args);
+      free (child->guard);
+      free (child);
+      palloc_free_page (args);
       return TID_ERROR;
     }
   sema_init (&child->guard->relationship->wait_sema, 0);
@@ -149,6 +151,9 @@ process_execute (const char *args_str)
   tid = thread_create (args->argv[0], PRI_DEFAULT, start_process, args);
   if (tid == TID_ERROR)
     {
+      free (child->guard->relationship);
+      free (child->guard);
+      free (child);
       palloc_free_page (args);
       return TID_ERROR;
     }
@@ -156,10 +161,15 @@ process_execute (const char *args_str)
   sema_down (&args->load_sema);
   if (!args->load_success)
     {
+      free (child->guard->relationship);
+      free (child->guard);
+      free (child);
       palloc_free_page (args); 
       return TID_ERROR;
     }
   palloc_free_page (args);
+  child->tid = tid;
+  hash_insert (&t->children, &child->elem);
 
   return tid;
 }
@@ -264,8 +274,8 @@ child_hash (const struct hash_elem *e, void *aux UNUSED)
 /* Compares two children by their TIDs. */
 static bool
 child_less (const struct hash_elem *a,
-         const struct hash_elem *b,
-         void *aux UNUSED)
+            const struct hash_elem *b,
+            void *aux UNUSED)
 {
   return hash_entry (a, struct child, elem)->tid
          < hash_entry (b, struct child, elem)->tid;
@@ -283,6 +293,13 @@ child_less (const struct hash_elem *a,
 int
 process_wait (tid_t child_tid)
 {
+  if (!thread_current ()->children_initalised)
+    {
+      /* This process has never called process_execute, so it cannot have any
+         children. */
+      return TID_ERROR;
+    }
+
   struct hash_elem *e;
   struct child fake_child;
   struct child *child;

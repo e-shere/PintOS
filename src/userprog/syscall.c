@@ -14,6 +14,7 @@
 
 #define STATUS_ERROR -1
 #define FILESIZE_ERROR -1
+#define MIN_FILE_FD 2
 
 typedef uint32_t (handler_func) (const void *, const void *, const void *);
 
@@ -108,7 +109,9 @@ tid_to_pid (tid_t tid)
 }
 
 static uint32_t
-sys_halt (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_halt (const void *arg1 UNUSED, 
+          const void *arg2 UNUSED, 
+          const void *arg3 UNUSED)
 {
   shutdown_power_off ();
   NOT_REACHED ();
@@ -116,7 +119,9 @@ sys_halt (const void *arg1 UNUSED, const void *arg2 UNUSED, const void *arg3 UNU
 }
 
 static uint32_t 
-sys_exit (const void *status_, const void *arg2 UNUSED, const void *arg3 UNUSED )
+sys_exit (const void *status_, 
+          const void *arg2 UNUSED, 
+          const void *arg3 UNUSED)
 {
   int status = *(int *) status_;
   process_exit_with_status (status);
@@ -144,7 +149,9 @@ sys_wait (const void *tid_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 }
 
 static uint32_t 
-sys_create (const void *filename_, const void *initial_size_, const void *arg3 UNUSED)
+sys_create (const void *filename_, 
+            const void *initial_size_, 
+            const void *arg3 UNUSED)
 {
   char *filename = *(char **) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
@@ -160,7 +167,9 @@ sys_create (const void *filename_, const void *initial_size_, const void *arg3 U
 }
 
 static uint32_t 
-sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_remove (const void *filename_, 
+            const void *arg2 UNUSED, 
+            const void *arg3 UNUSED)
 {
   char *filename = *(char **) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
@@ -174,7 +183,9 @@ sys_remove (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNU
 }
 
 static uint32_t 
-sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_open (const void *filename_, 
+          const void *arg2 UNUSED, 
+          const void *arg3 UNUSED)
 {
   char *filename = *(char**) filename_;
   if (!is_valid_user_string (filename, PGSIZE))
@@ -185,12 +196,14 @@ sys_open (const void *filename_, const void *arg2 UNUSED, const void *arg3 UNUSE
 }
 
 static uint32_t 
-sys_filesize (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
+sys_filesize (const void *fd_, 
+              const void *arg2 UNUSED, 
+              const void *arg3 UNUSED)
 {
   uint32_t fd = *(uint32_t *) fd_;
   struct files *current_files = get_current_files ();
   
-  if (fd <= 1 || !files_is_open (current_files, fd))
+  if (fd < MIN_FILE_FD || !files_is_open (current_files, fd))
     return FILESIZE_ERROR;
   return file_length (files_get (current_files, fd));
 }
@@ -246,7 +259,8 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
   int fd = *(int *) fd_;
   unsigned size = *(unsigned *) size_;
   const void *buffer = *(const void **) buffer_;
-  if (buffer == NULL || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
+  if (buffer == NULL 
+      || !is_valid_user_address_range ((uint8_t *) buffer, size)) 
     {
       process_exit_with_status (STATUS_ERROR);
       NOT_REACHED ();
@@ -281,7 +295,7 @@ sys_seek (const void *fd_, const void *position_, const void *arg3 UNUSED)
   uint32_t position = *(uint32_t *) position_;
   struct files *current_files = get_current_files ();
   
-  if (fd > 1 && files_is_open (current_files, fd))
+  if (fd >= MIN_FILE_FD && files_is_open (current_files, fd))
     file_seek (files_get (current_files, fd), position);
   
   return 0;
@@ -293,7 +307,7 @@ sys_tell (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   uint32_t fd = *(uint32_t *) fd_;
   struct files *current_files = get_current_files ();
   
-  if (fd > 1 && files_is_open (current_files, fd))
+  if (fd >= MIN_FILE_FD && files_is_open (current_files, fd))
     return file_tell (files_get (current_files, fd));
   
   return STATUS_ERROR;
@@ -306,7 +320,7 @@ sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 
   struct files *current_files = get_current_files ();
 
-  if (files_is_open (current_files, fd) && (fd > 1))
+  if (files_is_open (current_files, fd) && (fd >= MIN_FILE_FD))
     files_close (current_files, fd);
 
   return 0;
@@ -319,7 +333,7 @@ sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 
    If max_length is set to < 0, this function will not terminate until it finds
    the end of the string. If it is set to >= 0, then it will return false if
-   it has checked max_length + 1 bytes and has not found the null terminator. */
+   it has checked max_length + 1 bytes and has not found the null terminator.*/
 static bool
 is_valid_user_string (const char *ustr, int max_length)
 {
@@ -373,7 +387,8 @@ is_valid_user_address_range (uint8_t *start_addr, uint32_t size)
   if (pg_no (start_addr) == pg_no (end_addr))
     return is_valid_user_address (start_addr);
   
-  if (!is_valid_user_address (start_addr) || !is_valid_user_address (end_addr - 1))
+  if (!is_valid_user_address (start_addr) 
+      || !is_valid_user_address (end_addr - 1))
     return false;
   for (uint8_t *current_addr = start_addr + PGSIZE; 
        current_addr < end_addr - 1;

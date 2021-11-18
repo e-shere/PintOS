@@ -7,7 +7,7 @@
 /* Information about a user program. */
 struct user_prog
   {
-    struct guard *parent;
+    struct guard *parent;          /* Guard for relationship with the parent */
     struct file *executable;       /* The executable file being run. */
     struct files files;            /* Information about file descriptors. */
   };

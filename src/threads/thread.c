@@ -139,6 +139,19 @@ thread_init (void)
     }
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
+  initial_thread->base_priority = PRI_DEFAULT;
+  initial_thread->donated_priority = PRI_MIN;
+    if (thread_mlfqs)
+    {
+      initial_thread->nice = thread_get_nice ();
+      initial_thread->recent_cpu = thread_get_recent_cpu ();
+    }
+
+  initial_thread->priority = (thread_mlfqs)
+    ? thread_calculate_mlfqs_priority (initial_thread)
+    : PRI_DEFAULT;
+
+  list_init (&initial_thread->locks_held);
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.

@@ -264,10 +264,12 @@ sys_read (const void *fd_, const void *buffer_, const void *size_)
 
   if (fd == FD_STDOUT)
     bytes_written = 0;
-  else if (fd == FD_STDIN) {
-    read_keyboard(buffer, size);
-    bytes_written = size;
-  } else
+  else if (fd == FD_STDIN)
+    {
+      read_keyboard (buffer, size);
+      bytes_written = size;
+    }
+  else
     bytes_written = read_from_file (fd, buffer, size);
 
   return bytes_written;
@@ -290,7 +292,7 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
 
   if (fd == FD_STDOUT)
     {
-      putbuf(buffer, size);
+      putbuf (buffer, size);
       bytes_written = size;
     }
   else

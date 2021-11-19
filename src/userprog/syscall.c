@@ -131,10 +131,13 @@ static int read_from_file (int fd, const void *buffer, unsigned size) {
   if (!files_is_open (current_files, fd))
     return 0;
   
+  lock_acquire (&filesys_lock)
   struct file *open_file = files_get (current_files, fd);
 
-  return file_read (open_file, buff, size);
-}
+  int total_chars_read = file_read (open_file, buff, size);
+  lock_release (&filesys_lock);
+
+  return total_chars_read;
 
 static uint32_t
 sys_halt (const void *arg1 UNUSED, 
@@ -279,13 +282,17 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
 
     if (fd == FD_STDIN || !files_is_open (current_files, fd)) 
       return 0;
+
+    lock_acquire (&filesys_lock);
     struct file *open_file = files_get (current_files, fd);
 
-    if (open_file == NULL)
+    if (open_file == NULL) {
+      lock_release (&filesys_lock);
       process_exit_with_status (STATUS_ERROR);
-    
+    }
 
     bytes_written = (unsigned) file_write (open_file, buffer, size);
+    lock_release (&filesys_lock);
   }
 
   return bytes_written;

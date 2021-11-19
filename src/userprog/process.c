@@ -89,8 +89,7 @@ process_execute (const char *args_str)
   
   sema_init (&args->start_sema, 0);
   
-  size_t reserved_space_on_thread_page = sizeof (struct thread);
-  reserved_space_on_thread_page += sizeof (void *); /* Return address. */
+  size_t reserved_space_on_thread_page = sizeof (void *); /* Return address. */
   reserved_space_on_thread_page += sizeof (int); /* argc */
   reserved_space_on_thread_page += sizeof (char **); /* argv */
   reserved_space_on_thread_page += sizeof (char *); /* argv[0] */
@@ -177,7 +176,6 @@ process_execute (const char *args_str)
       palloc_free_page (args);
       return TID_ERROR;
     }
-  
   sema_down (&args->start_sema);
   if (!args->start_success)
     {

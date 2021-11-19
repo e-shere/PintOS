@@ -29,7 +29,7 @@ get_current_files (void)
 }
 
 /* Initialises a struct files. */
-void 
+void
 files_init_files (struct files *f)
 {
   f->fd_map = bitmap_create (MAX_FD_COUNT + 3);
@@ -49,9 +49,9 @@ files_open (struct files *f, char *file_name)
   struct file_descriptor *file_desc = malloc (sizeof(struct file_descriptor));
   if (file_desc == NULL)
     return FD_FAILURE;
-    
-  *file_desc =
-  (struct file_descriptor) {
+
+  *file_desc = (struct file_descriptor)
+  {
     .fd   = allocate_fd (f),
     .file = opened_file
   };
@@ -63,7 +63,7 @@ files_open (struct files *f, char *file_name)
 bool
 files_is_open (struct files *f, int fd)
 {
-  return (fd >= 0) && (fd < MAX_FD_COUNT + 2) 
+  return (fd >= 0) && (fd < MAX_FD_COUNT + 2)
     && (bitmap_test (f->fd_map, fd));
 }
 
@@ -72,15 +72,15 @@ struct file *
 files_get (struct files *f, int fd)
 {
 
-  if (fd < 0) {
+  if (fd < 0)
     return NULL;
-  }
+  
 
   ASSERT (files_is_open (f, fd));
 
   struct file_descriptor file_desc;
   struct hash_elem *e;
-  
+
   file_desc.fd = fd;
   e = hash_find (&f->fd_table, &file_desc.elem);
   ASSERT (e != NULL);
@@ -93,10 +93,10 @@ void
 files_close (struct files *f, int fd)
 {
   ASSERT (files_is_open (f, fd));
-  
+
   struct file_descriptor fake_file_desc;
   struct hash_elem *e;
-  
+
   fake_file_desc.fd = fd;
   e = hash_delete (&f->fd_table, &fake_file_desc.elem);
   fd_destructor (e, f);
@@ -132,7 +132,8 @@ fd_less (const struct hash_elem *a,
 static void
 fd_destructor (struct hash_elem *e, void *f_)
 {
-  struct file_descriptor *file_desc = hash_entry (e, struct file_descriptor, elem);
+  struct file_descriptor *file_desc =
+    hash_entry (e, struct file_descriptor, elem);
   file_close (file_desc->file);
   bitmap_set (((struct files *) f_)->fd_map, file_desc->fd, false);
   free (file_desc);

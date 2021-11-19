@@ -1,7 +1,7 @@
 #ifndef __LIB_SYSCALL_NR_H
 #define __LIB_SYSCALL_NR_H
 
-# define NUM_SYSCALL 13
+#define NUM_SYSCALL 13
 
 /* System call numbers. */
 enum 

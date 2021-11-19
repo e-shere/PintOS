@@ -4,13 +4,12 @@
 #include <random.h>
 #include <stdio.h>
 #include <string.h>
-#include "devices/timer.h"
-#include "threads/fixed-point.h"
 #include "threads/flags.h"
 #include "threads/interrupt.h"
 #include "threads/intr-stubs.h"
 #include "threads/palloc.h"
 #include "threads/switch.h"
+#include "threads/synch.h"
 #include "threads/vaddr.h"
 #ifdef USERPROG
 #include "userprog/process.h"
@@ -21,21 +20,13 @@
    of thread.h for details. */
 #define THREAD_MAGIC 0xcd6abf4b
 
-static int ready_threads;
-
-/* Multi-level list of processes in THREAD_READY state that is, processes
+/* List of processes in THREAD_READY state, that is, processes
    that are ready to run but not actually running. */
-static struct list ready_array[PRI_MAX - PRI_MIN + 1];
+static struct list ready_list;
 
 /* List of all processes.  Processes are added to this list
    when they are first scheduled and removed when they exit. */
 static struct list all_list;
-
-/* Recalculation */
-#define RECALCULATION_TICKS 4 /* # of timer ticks after which priority must be recalculated */
-
-/* Threads that have run since the last priority update. */
-static struct thread *recently_updated_threads[RECALCULATION_TICKS];
 
 /* Idle thread. */
 static struct thread *idle_thread;
@@ -68,10 +59,8 @@ static unsigned thread_ticks;   /* # of timer ticks since last yield. */
    Controlled by kernel command-line option "-mlfqs". */
 bool thread_mlfqs;
 
-/* Average load for MLFQS. */
-static fp load_avg;
-
 static void kernel_thread (thread_func *, void *aux);
+
 static void idle (void *aux UNUSED);
 static struct thread *running_thread (void);
 static struct thread *next_thread_to_run (void);
@@ -81,22 +70,6 @@ static void *alloc_frame (struct thread *, size_t size);
 static void schedule (void);
 void thread_schedule_tail (struct thread *prev);
 static tid_t allocate_tid (void);
-static void thread_make_ready (struct thread *t);
-static void thread_remove_ready (struct thread *t);
-static void update_mlfqs_data (void);
-static void update_load_avg (void);
-static thread_action_func update_recent_cpu;
-static int get_highest_existing_priority (void);
-static int thread_calculate_mlfqs_priority (struct thread *t);
-static struct list *thread_ready_queue_for (struct thread *t);
-
-/* Constants for 4.4BSD scheduler calculations. These are not
-   declared as constant since we use inline functions for FP
-   computations and thus we have to initialise them in
-   thread_init */
-static fp FP_SIXTIETH;
-static fp FP_FIFTYNINE;
-static fp FP_PRI_MAX;
 
 /* Initializes the threading system by transforming the code
    that's currently running into a thread.  This can't work in
@@ -116,27 +89,13 @@ thread_init (void)
 {
   ASSERT (intr_get_level () == INTR_OFF);
 
-  /* initialize FP constants */
-  FP_SIXTIETH = fp_div (fp_int_to_fp (1), fp_int_to_fp (60));
-  FP_FIFTYNINE = fp_int_to_fp (59);
-  FP_PRI_MAX = fp_int_to_fp (PRI_MAX);
-
   lock_init (&tid_lock);
+  list_init (&ready_list);
   list_init (&all_list);
-  for (int pri = PRI_MIN; pri <= PRI_MAX; pri++)
-    {
-      list_init (&ready_array[pri - PRI_MIN]);
-    }
 
   /* Set up a thread structure for the running thread. */
   initial_thread = running_thread ();
   init_thread (initial_thread, "main", PRI_DEFAULT);
-  if (thread_mlfqs)
-    {
-      load_avg = 0;
-      initial_thread->nice = 0;
-      initial_thread->recent_cpu = 0;
-    }
   initial_thread->status = THREAD_RUNNING;
   initial_thread->tid = allocate_tid ();
 }
@@ -162,7 +121,7 @@ thread_start (void)
 size_t
 threads_ready (void)
 {
-  return ready_threads;
+  return list_size (&ready_list);      
 }
 
 /* Called by the timer interrupt handler at each timer tick.
@@ -171,25 +130,6 @@ void
 thread_tick (void) 
 {
   struct thread *t = thread_current ();
-  if (thread_mlfqs)
-    {
-      int current_ticks = timer_ticks ();
-      if (t != idle_thread)
-        {
-          t->recent_cpu = fp_add_int (t->recent_cpu, 1);
-          recently_updated_threads[current_ticks % RECALCULATION_TICKS] = t;
-        }
-      if (current_ticks % RECALCULATION_TICKS == 0)
-        {
-          for (int i = 0; i < RECALCULATION_TICKS; i++)
-            {
-              thread_update_priority (recently_updated_threads[i]);
-            }
-          thread_yield_if_needed ();
-        }
-      if (current_ticks % TIMER_FREQ == 0)
-        update_mlfqs_data ();
-    }
 
   /* Update statistics. */
   if (t == idle_thread)
@@ -275,7 +215,6 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-  thread_yield ();
 
   return tid;
 }
@@ -313,10 +252,16 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  if (t != idle_thread)
-    thread_make_ready (t);
+  list_push_back (&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
+}
+
+/* Returns the name of the running thread. */
+const char *
+thread_name (void) 
+{
+  return thread_current ()->name;
 }
 
 /* Returns the running thread.
@@ -343,13 +288,6 @@ tid_t
 thread_tid (void) 
 {
   return thread_current ()->tid;
-}
-
-/* Returns the name of the running thread. */
-const char *
-thread_name (void) 
-{
-  return thread_current ()->name;
 }
 
 /* Deschedules the current thread and destroys it.  Never
@@ -385,7 +323,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    thread_make_ready (cur);
+    list_push_back (&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -408,6 +346,13 @@ thread_foreach (thread_action_func *func, void *aux)
     }
 }
 
+/* Sets the current thread's priority to NEW_PRIORITY. */
+void
+thread_set_priority (int new_priority) 
+{
+  thread_current ()->priority = new_priority;
+}
+
 /* Returns the current thread's priority. */
 int
 thread_get_priority (void) 
@@ -415,147 +360,37 @@ thread_get_priority (void)
   return thread_current ()->priority;
 }
 
-/* Sets the current thread's priority to NEW_PRIORITY. Cannot be called from 
-   an interrupt handler. */
+/* Sets the current thread's nice value to NICE. */
 void
-thread_set_priority (int new_priority) 
+thread_set_nice (int nice UNUSED) 
 {
-  if (thread_mlfqs)
-    return;
-  ASSERT (!intr_context ());
-  thread_current ()->base_priority = new_priority;
-  thread_update_priority (thread_current ());
-  thread_yield_if_needed ();
-}
-
-/* Yields if the current thread no longer has the highest priority */
-void
-thread_yield_if_needed (void) 
-{
-  if (intr_context ())
-    return;
-  if (get_highest_existing_priority () > thread_get_priority ())
-    thread_yield_when_possible ();
-}
-
-/* Yields immediately if not in an interrupt context, or at the end of the
-   interrupt otherwise. */
-void
-thread_yield_when_possible ()
-{
-  if (intr_context ())
-    intr_yield_on_return ();
-  else
-    thread_yield ();
-}
-
-/* Recalculates the priority donated to this thread based on the locks it
-   is holding. */
-void
-thread_update_donated_priority (struct thread *t)
-{
-  ASSERT (!thread_mlfqs);
-  t->donated_priority = list_empty (&t->locks_held)
-                        ? PRI_MIN
-                        : list_entry (list_max (&t->locks_held, 
-                                                lock_priority_less, NULL),
-                                      struct lock, elem)->priority;
-}
-
-/* Recalculates the effective priority from recent_cpu and nice for the 
-   MLFQS, or from the base and donated priority otherwise. */
-void
-thread_update_priority (struct thread *t)
-{
-  if (t == idle_thread)
-    return;
-  enum intr_level old_level = intr_disable ();
-  int old_priority = t->priority;
-  if (thread_mlfqs) {
-    t->priority = thread_calculate_mlfqs_priority (t);
-  }
-  else
-    t->priority = t->base_priority >= t->donated_priority
-                  ? t->base_priority
-                  : t->donated_priority;
-  if (t->status == THREAD_READY && t->priority != old_priority)
-    {
-      thread_remove_ready (t);
-      ready_threads--;
-      thread_make_ready (t);
-    }
-  intr_set_level (old_level);
-}
-
-/* Compares two threads by their effective priorities. */
-bool
-thread_priority_less (const struct list_elem *a,
-                      const struct list_elem *b,
-                      void *aux UNUSED)
-{ 
-  return list_entry (a, struct thread, elem)->priority 
-         < list_entry (b, struct thread, elem)->priority;
-}
-
-/* Returns the next thread that will run. */
-struct thread *
-get_next_thread (void)
-{
-  if (threads_ready () == 0)
-    return idle_thread;
-
-  int priority = get_highest_existing_priority ();
-  ASSERT (priority >= PRI_MIN);
-  struct list *l = &ready_array[priority];
-  ASSERT (!list_empty (l));
-  return list_entry (list_max (l, thread_priority_less, NULL), struct thread, elem);
+  /* Not yet implemented. */
 }
 
 /* Returns the current thread's nice value. */
 int
 thread_get_nice (void) 
 {
-  ASSERT (thread_mlfqs);
-  return thread_current ()->nice;
-}
-
-/* Sets the current thread's nice value to NICE. */
-void
-thread_set_nice (int nice) 
-{
-  ASSERT (thread_mlfqs);
-  thread_current ()->nice = nice;
-  thread_update_priority (thread_current ());
-  thread_yield_if_needed ();
-}
-
-/* Returns 100 times the current thread's recent_cpu value. */
-int
-thread_get_recent_cpu (void) 
-{
-  ASSERT (thread_mlfqs);
-  return fp_fp_to_int (fp_mul_int (thread_current ()->recent_cpu, 100));
+  /* Not yet implemented. */
+  return 0;
 }
 
 /* Returns 100 times the system load average. */
 int
 thread_get_load_avg (void) 
 {
-  ASSERT (thread_mlfqs);
-  return fp_fp_to_int (fp_mul_int (load_avg, 100));
+  /* Not yet implemented. */
+  return 0;
 }
 
-/* Function used as the basis for a kernel thread. */
-static void
-kernel_thread (thread_func *function, void *aux) 
+/* Returns 100 times the current thread's recent_cpu value. */
+int
+thread_get_recent_cpu (void) 
 {
-  ASSERT (function != NULL);
-
-  intr_enable ();       /* The scheduler runs with interrupts off. */
-  function (aux);       /* Execute the thread function. */
-  thread_exit ();       /* If function() returns, kill the thread. */
+  /* Not yet implemented. */
+  return 0;
 }
-
+
 /* Idle thread.  Executes when no other thread is ready to run.
 
    The idle thread is initially put on the ready list by
@@ -571,12 +406,9 @@ idle (void *idle_started_ UNUSED)
   struct semaphore *idle_started = idle_started_;
   idle_thread = thread_current ();
   sema_up (idle_started);
-  
 
   for (;;) 
     {
-      //printf ("Idling! My priority is: %d. There are %d threads on the queue\n", thread_current ()->priority, count_ready_threads ());
-
       /* Let someone else run. */
       intr_disable ();
       thread_block ();
@@ -597,6 +429,17 @@ idle (void *idle_started_ UNUSED)
     }
 }
 
+/* Function used as the basis for a kernel thread. */
+static void
+kernel_thread (thread_func *function, void *aux) 
+{
+  ASSERT (function != NULL);
+
+  intr_enable ();       /* The scheduler runs with interrupts off. */
+  function (aux);       /* Execute the thread function. */
+  thread_exit ();       /* If function() returns, kill the thread. */
+}
+
 /* Returns the running thread. */
 struct thread *
 running_thread (void) 
@@ -611,20 +454,11 @@ running_thread (void)
   return pg_round_down (esp);
 }
 
-/* Chooses and returns the next thread to be scheduled.  Should
-   return a thread from the run queue, unless the run queue is
-   empty.  (If the running thread can continue running, then it
-   will be in the run queue.)  If the run queue is empty, return
-   idle_thread. */
-static struct thread *
-next_thread_to_run (void) 
+/* Returns true if T appears to point to a valid thread. */
+static bool
+is_thread (struct thread *t)
 {
-  struct thread *t = get_next_thread ();
-  if (t == idle_thread)
-    return t;
-  thread_remove_ready (t);
-  ready_threads--;
-  return t;
+  return t != NULL && t->magic == THREAD_MAGIC;
 }
 
 /* Does basic initialization of T as a blocked thread named
@@ -642,31 +476,12 @@ init_thread (struct thread *t, const char *name, int priority)
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
-  t->base_priority = priority;
-  t->donated_priority = PRI_MIN;
+  t->priority = priority;
   t->magic = THREAD_MAGIC;
-  
-  if (thread_mlfqs && strcmp(name, "main"))
-    {
-      t->nice = thread_get_nice ();
-      t->recent_cpu = thread_get_recent_cpu ();
-    }
 
-  t->priority = (thread_mlfqs)
-    ? thread_calculate_mlfqs_priority (t)
-    : priority;
-
-  list_init (&t->locks_held);
   old_level = intr_disable ();
   list_push_back (&all_list, &t->allelem);
   intr_set_level (old_level);
-}
-
-/* Returns true if T appears to point to a valid thread. */
-static bool
-is_thread (struct thread *t)
-{
-  return t != NULL && t->magic == THREAD_MAGIC;
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and
@@ -682,27 +497,18 @@ alloc_frame (struct thread *t, size_t size)
   return t->stack;
 }
 
-/* Schedules a new process.  At entry, interrupts must be off and
-   the running process's state must have been changed from
-   running to some other state.  This function finds another
-   thread to run and switches to it.
-
-   It's not safe to call printf() until thread_schedule_tail()
-   has completed. */
-static void
-schedule (void) 
+/* Chooses and returns the next thread to be scheduled.  Should
+   return a thread from the run queue, unless the run queue is
+   empty.  (If the running thread can continue running, then it
+   will be in the run queue.)  If the run queue is empty, return
+   idle_thread. */
+static struct thread *
+next_thread_to_run (void) 
 {
-  struct thread *cur = running_thread ();
-  struct thread *next = next_thread_to_run ();
-  struct thread *prev = NULL;
-
-  ASSERT (intr_get_level () == INTR_OFF);
-  ASSERT (cur->status != THREAD_RUNNING);
-  ASSERT (is_thread (next));
-
-  if (cur != next)
-    prev = switch_threads (cur, next);
-  thread_schedule_tail (prev);
+  if (list_empty (&ready_list))
+    return idle_thread;
+  else
+    return list_entry (list_pop_front (&ready_list), struct thread, elem);
 }
 
 /* Completes a thread switch by activating the new thread's page
@@ -751,6 +557,29 @@ thread_schedule_tail (struct thread *prev)
     }
 }
 
+/* Schedules a new process.  At entry, interrupts must be off and
+   the running process's state must have been changed from
+   running to some other state.  This function finds another
+   thread to run and switches to it.
+
+   It's not safe to call printf() until thread_schedule_tail()
+   has completed. */
+static void
+schedule (void) 
+{
+  struct thread *cur = running_thread ();
+  struct thread *next = next_thread_to_run ();
+  struct thread *prev = NULL;
+
+  ASSERT (intr_get_level () == INTR_OFF);
+  ASSERT (cur->status != THREAD_RUNNING);
+  ASSERT (is_thread (next));
+
+  if (cur != next)
+    prev = switch_threads (cur, next);
+  thread_schedule_tail (prev);
+}
+
 /* Returns a tid to use for a new thread. */
 static tid_t
 allocate_tid (void) 
@@ -764,86 +593,7 @@ allocate_tid (void)
 
   return tid;
 }
-
-/* Adds a thread to the appropriate ready queue. */
-static void
-thread_make_ready (struct thread *t)
-{
-  ready_threads++;
-  list_push_back (thread_ready_queue_for (t), &t->elem);
-}
-
-/* Removes a thread from its ready queue. */
-static void
-thread_remove_ready (struct thread *t)
-{
-  list_remove(&t->elem);
-}
-
-/* Updates load_avg as well as every thread's recent_cpu. */
-static void
-update_mlfqs_data (void)
-{
-  update_load_avg ();
-  thread_foreach (update_recent_cpu, NULL);
-}
-
-/* Recalculates load_avg. */
-static void
-update_load_avg (void)
-{
-  load_avg = fp_mul (FP_SIXTIETH, 
-                     fp_add_int (fp_mul (FP_FIFTYNINE, load_avg), 
-                                 threads_ready () + 
-                                  (thread_current () != idle_thread)));
-}
-
-/* Recalculates a thread's recent_cpu. */
-static void
-update_recent_cpu (struct thread *t, void *aux UNUSED)
-{
-  fp load_avg_times_2 = fp_mul_int (load_avg, 2);
-  fp coef = fp_div (load_avg_times_2,
-                   fp_add_int (load_avg_times_2, 1));
-  t->recent_cpu = fp_add_int (fp_mul (coef, t->recent_cpu), t->nice);
-  thread_update_priority (t);
-}
-
-/* Gets the highest priority of any ready thread. */
-static int
-get_highest_existing_priority (void)
-{
-  for (int pri = PRI_MAX; pri >= PRI_MIN; pri--)
-    {
-      if (!list_empty (&ready_array[pri - PRI_MIN]))
-        return pri;
-    }
-  return PRI_MIN - 1;
-}
-
-/* Recalculates the priority of a thread in MLFQS. */
-static int
-thread_calculate_mlfqs_priority (struct thread *t)
-{
-  ASSERT (thread_mlfqs);
-  int base_pri = fp_fp_to_int (fp_sub (FP_PRI_MAX,
-                                       fp_add_int (fp_div_int (t->recent_cpu, 
-                                                               4),
-                                                   t->nice * 2)));
-  if (base_pri > PRI_MAX)
-    return PRI_MAX;
-  if (base_pri < PRI_MIN)
-    return PRI_MIN;
-  return base_pri;
-}
-
-/* Returns the appropriate ready queue for a thread. */
-static struct list*
-thread_ready_queue_for (struct thread *t)
-{
-  return &ready_array[t->priority - PRI_MIN];
-}
-
+
 /* Offset of `stack' member within `struct thread'.
    Used by switch.S, which can't figure it out on its own. */
 uint32_t thread_stack_ofs = offsetof (struct thread, stack);

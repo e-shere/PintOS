@@ -218,6 +218,7 @@ sys_remove (const void *filename_,
   return return_value;
 }
 
+/* open syscall - most processing is offloaded to files_open */
 static uint32_t
 sys_open (const void *filename_,
           const void *arg2 UNUSED,
@@ -242,6 +243,7 @@ sys_filesize (const void *fd_,
   uint32_t fd = *(uint32_t *) fd_;
   struct files *current_files = get_current_files ();
 
+  /* We cannot request the filesize of stdin or stdout */
   if (fd < MIN_FILE_FD || !files_is_open (current_files, fd))
     return FILESIZE_ERROR;
 
@@ -303,11 +305,8 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
         return 0;
 
       struct file *open_file = files_get (current_files, fd);
-      if (open_file == NULL)
-        {
-          process_exit_with_status (STATUS_ERROR);
-          NOT_REACHED ();
-        }
+      ASSERT (open_file != NULL)
+
       lock_acquire (&filesys_lock);
       bytes_written = (unsigned) file_write (open_file, buffer, size);
       lock_release (&filesys_lock);
@@ -322,6 +321,8 @@ sys_seek (const void *fd_, const void *position_, const void *arg3 UNUSED)
   uint32_t fd = *(uint32_t *) fd_;
   uint32_t position = *(uint32_t *) position_;
   struct files *current_files = get_current_files ();
+
+  /* Again, we cannot execute this function on STDIN or STDOUT */
   if (fd >= MIN_FILE_FD && files_is_open (current_files, fd))
     file_seek (files_get (current_files, fd), position);
   return 0;
@@ -333,6 +334,7 @@ sys_tell (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
   uint32_t fd = *(uint32_t *) fd_;
   struct files *current_files = get_current_files ();
 
+  /* Again, we cannot execute this function on STDIN or STDOUT */
   if (fd >= MIN_FILE_FD && files_is_open (current_files, fd))
     return file_tell (files_get (current_files, fd));
 
@@ -346,6 +348,7 @@ sys_close (const void *fd_, const void *arg2 UNUSED, const void *arg3 UNUSED)
 
   struct files *current_files = get_current_files ();
 
+  /* Again, we cannot execute this function on STDIN or STDOUT */
   if (files_is_open (current_files, fd) && (fd >= MIN_FILE_FD))
     files_close (current_files, fd);
 

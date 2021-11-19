@@ -31,6 +31,7 @@
     *(type) esp = value;                   \
   } while (0)
 
+/* A parent's information about one of its children. */
 struct child
   {
     tid_t tid;                     /* TID of the child thread. */
@@ -38,6 +39,8 @@ struct child
     struct guard *guard;           /* Guard for relationship with the child */
   };
 
+/* Controls access to a relationship. Needed so parent can free relationship
+   upon exiting without leaving the child with an invalid pointer. */
 struct guard
   {
     struct lock lock;                      /* Controls access to relationship */
@@ -45,6 +48,8 @@ struct guard
                                               controls waiting */
   };
 
+/* Shared data between parent's process_wait () and the child's
+   process_exit (). */
 struct relationship
   {
     int exit_status;              /* Exit status of the child */
@@ -86,7 +91,15 @@ process_execute (const char *args_str)
   char *save_ptr;
   tid_t tid;
 
-  /* */
+  /* Page of data shared between execute and start.
+    args is a struct arguments * but because it
+    is at the start of the page, we can use it to refer
+    to the whole of the page.
+    This page will also contain the whole argument string and argv.
+    We put argv at the end because otherwise we would need to
+    leave space for it, but we do not know its length until after
+    arg_str has been processed which happens after it has
+    been copied to the page. */
   args = palloc_get_page (PAL_ZERO);
   if (args == NULL)
     return TID_ERROR;
@@ -100,15 +113,17 @@ process_execute (const char *args_str)
   reserved_space_on_thread_page += sizeof (uint8_t) * 4; /* Word alignment. */
   size_t reserved_space_on_args_page = sizeof (*args);
   reserved_space_on_args_page += sizeof (char *); /* argv[0] */
+
   /* The data about to be saved on the args page will also need to fit on
      the stack so if there is more space reserved on the stack page we need
      to reserve that amount of space on the temporary args page as well. */
   if (reserved_space_on_thread_page > reserved_space_on_args_page)
     reserved_space_on_args_page = reserved_space_on_thread_page;
 
-  /* Subtract the new maximum value from PGSIZE */
+  /* Subtract the new maximum value from PGSIZE. */
   space_left = PGSIZE - reserved_space_on_args_page;
 
+  /* args_str will be placed directly after args in the page. */
   char *args_str_ptr = (char *) (((uint8_t *) args) + sizeof (*args));
   length = strlcpy (args_str_ptr, args_str, space_left);
 
@@ -120,7 +135,9 @@ process_execute (const char *args_str)
       return TID_ERROR;
     }
 
-  args->argv = (char **) (((uint8_t *) args) + sizeof (*args) + length + 1);
+  /* We know where the string starts and how long it is, so we can
+     find the first space after it which is where we place argv. */
+  args->argv = (char **) (args_str_ptr + length + 1);
   args->argv[0] = args_str_ptr;
 
   strtok_r (args->argv[0], " ", &save_ptr);
@@ -142,6 +159,7 @@ process_execute (const char *args_str)
   struct child *child = malloc (sizeof (struct child));
   if (child == NULL)
     {
+      /* Since args is at the start of the page, this frees the whole page. */
       palloc_free_page (args);
       return TID_ERROR;
     }

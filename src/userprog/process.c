@@ -83,6 +83,7 @@ process_execute (const char *args_str)
   char *save_ptr;
   tid_t tid;
 
+  /* */
   args = palloc_get_page (PAL_ZERO);
   if (args == NULL)
     return TID_ERROR;
@@ -94,15 +95,17 @@ process_execute (const char *args_str)
   reserved_space_on_thread_page += sizeof (char **); /* argv */
   reserved_space_on_thread_page += sizeof (char *); /* argv[0] */
   reserved_space_on_thread_page += sizeof (uint8_t) * 4; /* Word alignment. */
-  
   size_t reserved_space_on_args_page = sizeof (*args);
   reserved_space_on_args_page += sizeof (char *); /* argv[0] */
-  
-  /* If this fails, there could be a program that should be able to run but
-     cannot be loaded. This should not happen. */
-  ASSERT (reserved_space_on_thread_page >= reserved_space_on_args_page);
-  
-  space_left = PGSIZE - reserved_space_on_thread_page;
+  /* The data about to be saved on the args page will also need to fit on
+     the stack so if there is more space reserved on the stack page we need
+     to reserve that amount of space on the temporary args page as well. */
+  if (reserved_space_on_thread_page > reserved_space_on_args_page) {
+    reserved_space_on_args_page = reserved_space_on_thread_page;
+  }
+
+  /* Subtract the new maximum value from PGSIZE */
+  space_left = PGSIZE - reserved_space_on_args_page;
   
   char *args_str_ptr = (char *) (((uint8_t *) args) + sizeof (*args));
   length = strlcpy (args_str_ptr, args_str, space_left);

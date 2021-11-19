@@ -224,7 +224,10 @@ sys_open (const void *filename_,
     process_exit_with_status (STATUS_ERROR);
 
   struct files *current_files = get_current_files ();
-  return files_open(current_files, filename);
+  lock_acquire (&filesys_lock);
+  int fd = files_open(current_files, filename);
+  lock_release (&filesys_lock);
+  return fd;
 }
 
 static uint32_t 
@@ -237,7 +240,14 @@ sys_filesize (const void *fd_,
   
   if (fd < MIN_FILE_FD || !files_is_open (current_files, fd))
     return FILESIZE_ERROR;
-  return file_length (files_get (current_files, fd));
+  
+  struct file *open_file = files_get (current_files, fd);
+  
+  lock_acquire (&filesys_lock);
+  off_t open_file_length = file_length (open_file);
+  lock_release (&filesys_lock);
+
+  return open_file_length;
 }
 
 static uint32_t 
@@ -284,14 +294,12 @@ sys_write (const void *fd_, const void *buffer_, const void *size_)
     if (fd == FD_STDIN || !files_is_open (current_files, fd)) 
       return 0;
 
-    lock_acquire (&filesys_lock);
     struct file *open_file = files_get (current_files, fd);
-
     if (open_file == NULL) {
-      lock_release (&filesys_lock);
       process_exit_with_status (STATUS_ERROR);
+      NOT_REACHED ();
     }
-
+    lock_acquire (&filesys_lock);
     bytes_written = (unsigned) file_write (open_file, buffer, size);
     lock_release (&filesys_lock);
   }
@@ -305,10 +313,8 @@ sys_seek (const void *fd_, const void *position_, const void *arg3 UNUSED)
   uint32_t fd = *(uint32_t *) fd_;
   uint32_t position = *(uint32_t *) position_;
   struct files *current_files = get_current_files ();
-  
   if (fd >= MIN_FILE_FD && files_is_open (current_files, fd))
     file_seek (files_get (current_files, fd), position);
-  
   return 0;
 }
 

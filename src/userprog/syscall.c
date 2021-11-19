@@ -131,13 +131,14 @@ static int read_from_file (int fd, const void *buffer, unsigned size) {
   if (!files_is_open (current_files, fd))
     return 0;
   
-  lock_acquire (&filesys_lock)
+  lock_acquire (&filesys_lock);
   struct file *open_file = files_get (current_files, fd);
 
   int total_chars_read = file_read (open_file, buff, size);
   lock_release (&filesys_lock);
 
   return total_chars_read;
+}
 
 static uint32_t
 sys_halt (const void *arg1 UNUSED, 
